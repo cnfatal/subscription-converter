@@ -1,0 +1,5 @@
+.git
+.github
+config.yaml
+rules
+*.log

@@ -1,92 +1,83 @@
 # subscription-converter
 
-将 Clash/Mihomo 或 Base64 URI 订阅转换为 sing-box 配置，并通过本地 HTTP
-接口提供给 SFM 等客户端。
+[![CI](https://github.com/cnfatal/subscription-converter/actions/workflows/ci.yml/badge.svg)](https://github.com/cnfatal/subscription-converter/actions/workflows/ci.yml)
 
-支持：
+`subscription-converter` converts Clash/Mihomo and Base64 URI subscriptions into
+sing-box JSON configurations. It can run as a CLI or expose named subscriptions
+through a small HTTP service for clients such as SFM.
 
-- Clash/Mihomo YAML
-- Base64 包装的 Shadowsocks、VMess、VLESS URI
-- AnyTLS、Hysteria2 端口跳跃、VLESS Reality
-- Proxy Provider、Rule Provider、RULE-SET、GEOIP、GEOSITE
-- select、url-test、relay，以及 fallback/load-balance 兼容转换
-- Clash DNS policy、FakeIP、fallback 和 proxy/direct resolver
-- sing-box JSON 输出
-- 本地文件、标准输入和 HTTP(S) 订阅源
+## Features
 
-## 快速启动
+- Clash/Mihomo YAML and Base64-wrapped Shadowsocks, VMess, and VLESS URIs
+- AnyTLS, Hysteria2 port hopping, VLESS Reality, Trojan, TUIC, SOCKS5, and HTTP
+- Proxy Providers, Rule Providers, `RULE-SET`, `GEOIP`, and `GEOSITE`
+- `select`, `url-test`, and `relay` groups
+- Compatibility conversion for `fallback` and `load-balance` groups
+- Clash DNS policies, FakeIP, fallback DNS, and proxy/direct resolvers
+- Global and per-subscription patches
+- Local files, standard input, and HTTP(S) sources
+- HTTP headers, timeouts, in-memory caching, ETag, and Last-Modified revalidation
+
+## Quick start
+
+Requirements: Go 1.24 or later.
 
 ```bash
 cp config.example.yaml config.yaml
-# 编辑 config.yaml
+$EDITOR config.yaml
 make run
 ```
 
-`config.yaml` 示例：
+Open the index page at <http://127.0.0.1:9099/> or request a named subscription:
+
+```bash
+curl 'http://127.0.0.1:9099/subscriptions/primary?format=sing-box'
+```
+
+Additional service endpoints:
+
+```text
+GET /healthz
+GET /subscriptions
+GET /subscriptions/{name}?format=sing-box
+```
+
+## Configuration
 
 ```yaml
 server:
   listen: 127.0.0.1:9099
 
+patches:
+  - source: ./rules/global.yaml
+
 subscriptions:
   - name: primary
     source: https://example.com/subscription
-    # 可选；省略时自动识别，也可以指定 base64 或 clash。
-    format: base64
+    # Optional. Omit to recognize the input automatically.
+    format: clash
     headers:
       Authorization: Bearer replace-me
     timeout: 30s
     cache: 10m
+    patches:
+      - source: ./rules/primary.yaml
 ```
 
-访问转换后的配置：
+Every source supports local paths and HTTP(S). Remote sources may specify
+`headers`, `timeout`, and `cache`. Relative paths are resolved from the parent
+configuration file. `~` is resolved through the current operating-system user,
+including launchd environments without `HOME`.
 
-```text
-http://127.0.0.1:9099/subscriptions/primary?format=sing-box
-```
+## CLI
 
-检查服务：
-
-```bash
-open http://127.0.0.1:9099/
-curl http://127.0.0.1:9099/healthz
-curl http://127.0.0.1:9099/subscriptions
-```
-
-## macOS launchd
-
-安装为当前用户的 LaunchAgent：
-
-```bash
-make launchd-install
-```
-
-安装位置：
-
-- 程序、配置和规则：`~/Library/Application Support/subscription-converter`
-- LaunchAgent：`~/Library/LaunchAgents/cn.fatalc.subscription-converter.plist`
-
-常用命令：
-
-```bash
-make launchd-status
-make launchd-restart
-
-# 修改项目目录中的 config.yaml 后同步并重启。
-make launchd-sync-config
-
-make launchd-uninstall
-```
-
-卸载不会删除已安装的配置。服务默认只监听 `127.0.0.1:9099`。
-
-## 单次转换
+Convert one subscription:
 
 ```bash
 make build
 
 bin/subscription-converter convert \
-  -input config.yaml \
+  -input subscription.yaml \
   -from clash \
   -to sing-box \
   -output config.json
@@ -94,29 +85,25 @@ bin/subscription-converter convert \
 sing-box check -c config.json
 ```
 
-输入格式可以设为 `auto`、`base64` 或 `clash`。转换警告写入标准错误。
+`-from` accepts `auto`, `base64`, or `clash`. Conversion warnings are written to
+standard error.
 
-## Patch rules
+List registered formats:
 
-顶层 `patches` 应用于所有订阅，订阅中的 `patches` 只应用于当前订阅：
-
-```yaml
-patches:
-  - source: https://example.com/proxy-rules.yaml
-    headers:
-      Authorization: Bearer replace-me
-    timeout: 30s
-    cache: 1h
-
-subscriptions:
-  - name: justmysocks
-    source: https://example.com/base64-subscription
-    format: base64
-    patches:
-      - source: ./rules/justmysocks.yaml
+```bash
+bin/subscription-converter formats
 ```
 
-默认 Patch format 是 `clash-rules`，规则文件格式为：
+## Patches
+
+Top-level patches apply to every subscription. Patches nested under a
+subscription apply only to that subscription. Their priority is:
+
+```text
+subscription patches -> top-level patches -> source rules -> final
+```
+
+The default patch format is `clash-rules`:
 
 ```yaml
 rules:
@@ -126,59 +113,63 @@ rules:
   - MATCH,proxy
 ```
 
-也可以显式设置 `format: patch`，使用强类型 `DocumentPatch`。
+The `patch` format accepts a strongly typed `DocumentPatch`. The `sing-box`
+format accepts a sing-box configuration and merges `route.rule_set`,
+`route.rules`, and `route.final`.
 
-`format: sing-box` 将文件解码为完整的强类型 `SingBoxConfig`；作为 Patch 使用时，
-当前合并其中的 `route.rule_set`、`route.rules` 和 `route.final`：
+Rule sets are merged by tag. Invalid rules, duplicate final rules, missing rule
+sets, and unknown policies fail the conversion instead of being silently
+ignored.
 
-```yaml
-route:
-  rule_set:
-    - type: remote
-      tag: geoip-cn
-      format: binary
-      url: https://example.com/geoip-cn.srs
-      download_detour: proxy
-  rules:
-    - rule_set: [geoip-cn]
-      outbound: direct
-  final: direct
-```
+## macOS service
 
-Rule-set 按 `tag` 合并，订阅 Patch 覆盖顶层 Patch，顶层 Patch 覆盖订阅原定义；
-引用不存在的 rule-set 会导致转换失败。规则优先级为：
-
-```text
-subscription patches → top-level patches → source rules → final
-```
-
-Patch 文件读取失败、规则无效、重复 `MATCH` 或引用未知策略时，本次转换直接失败。
-
-订阅、Patch、Proxy Provider 和 Rule Provider 共用同一个 Source Loader。本地文件、HTTP、
-HTTPS 使用相同的大小限制；远程 Source 支持自定义 Header、超时、内存缓存、ETag 和
-Last-Modified 条件请求。缓存默认关闭。
-
-## 开发
+Install or update the current user's launchd service:
 
 ```bash
-make test
-make vet
+make launchd-install
 ```
 
-项目根目录是公共核心包 `subscriptionconverter`，`base64`、`clash`、`singbox` 是独立
-Codec package，`builtin.New()` 负责组装内置格式。自定义场景也可以通过
-`subscriptionconverter.New(codecs...)` 只注册需要的 Codec。中间 `Document` 使用强类型
-节点、DNS、路由、策略组、TLS 和传输结构。
+This installs the binary and configuration under:
 
-GEOIP 和 GEOSITE 在输出 sing-box 时转换为远程 rule-set。Clash YAML/text Rule Provider
-会先由转换器读取，再输出为 sing-box inline rule-set；Mihomo MRS 二进制 Provider 当前会
-明确报错。
+```text
+~/Library/Application Support/subscription-converter
+```
 
-`relay` 转换为 sing-box detour 链。sing-box 没有与 Clash ordered fallback 和
-round-robin/consistent-hashing load-balance 等价的 outbound，因此 fallback 使用 urltest、
-load-balance 使用 selector，并输出明确警告。
+The LaunchAgent is written to:
 
-FakeIP 使用 sing-box 1.12+ 的强类型 FakeIP DNS server。FakeIP 与 fallback 同时启用时
-无法保持 Mihomo 在 FakeIP 后方选择上游 DNS 的并发解析语义，fallback 选择会明确告警并省略。
-Mihomo VLESS `encryption: none` 按标准 sing-box VLESS 输出；其他 encryption 扩展不受
-sing-box 支持，相关节点会明确告警并跳过。
+```text
+~/Library/LaunchAgents/cn.fatalc.subscription-converter.plist
+```
+
+Remove the LaunchAgent while retaining the installed configuration:
+
+```bash
+make launchd-uninstall
+```
+
+## Container image
+
+The published multi-architecture image supports `linux/amd64` and
+`linux/arm64`:
+
+```bash
+docker run --rm \
+  -p 9099:9099 \
+  -v "$PWD/config.yaml:/config/config.yaml:ro" \
+  ghcr.io/cnfatal/subscription-converter:latest
+```
+
+For container use, set `server.listen` to `0.0.0.0:9099` and mount any local
+patch files referenced by the configuration.
+
+## Compatibility notes
+
+- Mihomo MRS Rule Provider files are rejected; YAML and text providers are
+  supported.
+- Ordered fallback is approximated with sing-box `urltest`.
+- Load-balancing groups are downgraded to selectors because sing-box has no
+  equivalent outbound balancer.
+- FakeIP combined with Clash fallback DNS cannot preserve Mihomo's upstream
+  selection semantics; the fallback selection is omitted with a warning.
+- Non-`DIRECT` Provider download proxies are rejected because the converter
+  cannot execute downloads through a Clash policy group.
