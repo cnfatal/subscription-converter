@@ -71,6 +71,11 @@ func (h *Handler) Routes() http.Handler {
 		writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = writer.Write([]byte("ok\n"))
 	})
+	mux.HandleFunc("GET /version", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-store")
+		_ = json.NewEncoder(writer).Encode(GetVersion())
+	})
 	mux.HandleFunc("GET /subscriptions", h.list)
 	mux.HandleFunc("GET /subscriptions/{name}", h.convert)
 	return mux

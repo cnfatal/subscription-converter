@@ -38,6 +38,7 @@ Additional service endpoints:
 
 ```text
 GET /healthz
+GET /version
 GET /subscriptions
 GET /subscriptions/{name}?format=sing-box
 ```

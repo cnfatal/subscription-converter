@@ -56,6 +56,28 @@ func TestHandlerRoutesSubscriptionsByName(t *testing.T) {
 	}
 }
 
+func TestHandlerVersion(t *testing.T) {
+	config := subscriptionconverter.Config{Subscriptions: []subscriptionconverter.SubscriptionConfig{{
+		Name: "primary", Source: subscriptionconverter.Source{Location: "testdata/clash.yaml"},
+	}}}
+	handler, err := subscriptionconverter.NewHandler(config, builtin.New(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/version", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	var version subscriptionconverter.Version
+	if err := json.Unmarshal(response.Body.Bytes(), &version); err != nil {
+		t.Fatal(err)
+	}
+	if version.GitVersion == "" || version.GitCommit == "" || version.Platform == "" {
+		t.Fatalf("incomplete version: %#v", version)
+	}
+}
+
 func TestHandlerAppliesSubscriptionPatchBeforeGlobalAndSourceRules(t *testing.T) {
 	directory := t.TempDir()
 	globalPath := filepath.Join(directory, "global.yaml")
