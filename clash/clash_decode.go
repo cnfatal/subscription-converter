@@ -15,7 +15,11 @@ func (ClashCodec) Decode(data []byte, options DecodeOptions) (*Document, []strin
 	if err := yaml.Unmarshal(data, &input); err != nil {
 		return nil, nil, fmt.Errorf("decode Clash YAML: %w", err)
 	}
-	if len(input.Proxies) == 0 && len(input.ProxyProviders) == 0 {
+	return decodeClashConfig(input, options, true)
+}
+
+func decodeClashConfig(input ClashConfig, options DecodeOptions, requireProxies bool) (*Document, []string, error) {
+	if requireProxies && len(input.Proxies) == 0 && len(input.ProxyProviders) == 0 {
 		return nil, nil, fmt.Errorf("Clash configuration contains no proxies")
 	}
 

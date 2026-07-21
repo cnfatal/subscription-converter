@@ -15,7 +15,7 @@ import (
 type singBoxPatchConfig struct {
 	Log          any                `json:"log,omitempty"`
 	DNS          any                `json:"dns,omitempty"`
-	Inbounds     any                `json:"inbounds,omitempty"`
+	Inbounds     *[]SingBoxInbound  `json:"inbounds,omitempty"`
 	Outbounds    any                `json:"outbounds,omitempty"`
 	Experimental any                `json:"experimental,omitempty"`
 	Route        *singBoxPatchRoute `json:"route,omitempty"`
@@ -60,13 +60,28 @@ func (SingBoxCodec) PatchFormats() []PatchFormat {
 	return []PatchFormat{PatchFormatSingBox}
 }
 
-func (SingBoxCodec) DecodePatch(data []byte, _ PatchFormat) (DocumentPatch, error) {
+func (SingBoxCodec) DecodePatch(data []byte, _ PatchFormat, _ DecodeOptions) (DocumentPatch, error) {
 	var input singBoxPatchConfig
 	if err := yaml.UnmarshalStrict(data, &input); err != nil {
 		return DocumentPatch{}, fmt.Errorf("decode sing-box patch: %w", err)
 	}
-	if input.Route == nil {
+	if input.Inbounds == nil && input.Route == nil {
 		return DocumentPatch{}, fmt.Errorf("sing-box patch contains no supported sections")
+	}
+	patch := DocumentPatch{}
+	if input.Inbounds != nil {
+		inbounds := make([]Inbound, 0, len(*input.Inbounds))
+		for index, inputInbound := range *input.Inbounds {
+			inbound, err := inputInbound.documentInbound()
+			if err != nil {
+				return DocumentPatch{}, fmt.Errorf("sing-box inbound #%d: %w", index+1, err)
+			}
+			inbounds = append(inbounds, inbound)
+		}
+		patch.Inbounds = &inbounds
+	}
+	if input.Route == nil {
+		return patch, nil
 	}
 	route := &RoutePatch{}
 	if input.Route.Final != "" {
@@ -87,7 +102,32 @@ func (SingBoxCodec) DecodePatch(data []byte, _ PatchFormat) (DocumentPatch, erro
 		}
 		route.Rules = append(route.Rules, rule)
 	}
-	return DocumentPatch{Route: route}, nil
+	patch.Route = route
+	return patch, nil
+}
+
+func (inbound SingBoxInbound) documentInbound() (Inbound, error) {
+	result := Inbound{
+		Type:           InboundType(inbound.Type),
+		Tag:            inbound.Tag,
+		Listen:         inbound.Listen,
+		ListenPort:     inbound.ListenPort,
+		SetSystemProxy: inbound.SetSystemProxy,
+	}
+	for _, user := range inbound.Users {
+		result.Users = append(result.Users, InboundUser{Username: user.Username, Password: user.Password})
+	}
+	if inbound.Type == SingBoxInboundTUN {
+		addresses, err := parsePrefixes(inbound.Address)
+		if err != nil {
+			return Inbound{}, fmt.Errorf("address: %w", err)
+		}
+		result.TUN = &TUNConfig{
+			Addresses: addresses, AutoRoute: inbound.AutoRoute, StrictRoute: inbound.StrictRoute,
+			Stack: TUNStack(inbound.Stack), MTU: inbound.MTU,
+		}
+	}
+	return result, nil
 }
 
 func (ruleSet singBoxPatchRuleSet) documentRuleSet() (RuleSet, error) {

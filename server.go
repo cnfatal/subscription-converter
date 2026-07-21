@@ -177,7 +177,10 @@ func (h *Handler) convert(writer http.ResponseWriter, request *http.Request) {
 		h.writeError(writer, name, err)
 		return
 	}
-	warnings := append(decoded.Warnings, encoded.Warnings...)
+	warnings := append([]string(nil), decoded.Warnings...)
+	warnings = append(warnings, globalPatch.Warnings...)
+	warnings = append(warnings, localPatch.Warnings...)
+	warnings = append(warnings, encoded.Warnings...)
 	for _, warning := range warnings {
 		h.logger().Warn("conversion warning", "subscription", name, "message", warning)
 	}

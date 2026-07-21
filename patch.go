@@ -2,6 +2,7 @@ package subscriptionconverter
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"sigs.k8s.io/yaml"
@@ -10,9 +11,9 @@ import (
 type PatchFormat string
 
 const (
-	PatchFormatClashRules PatchFormat = "clash-rules"
-	PatchFormatDocument   PatchFormat = "patch"
-	PatchFormatSingBox    PatchFormat = "sing-box"
+	PatchFormatClash    PatchFormat = "clash"
+	PatchFormatDocument PatchFormat = "patch"
+	PatchFormatSingBox  PatchFormat = "sing-box"
 )
 
 type PatchSource struct {
@@ -21,7 +22,12 @@ type PatchSource struct {
 }
 
 type DocumentPatch struct {
-	Route *RoutePatch `json:"route,omitempty"`
+	Warnings []string    `json:"-"`
+	Inbounds *[]Inbound  `json:"inbounds,omitempty"`
+	DNS      *DNSConfig  `json:"dns,omitempty"`
+	Nodes    []Node      `json:"nodes,omitempty"`
+	Groups   []Group     `json:"groups,omitempty"`
+	Route    *RoutePatch `json:"route,omitempty"`
 }
 
 type RoutePatch struct {
@@ -32,13 +38,13 @@ type RoutePatch struct {
 
 type PatchCodec interface {
 	PatchFormats() []PatchFormat
-	DecodePatch([]byte, PatchFormat) (DocumentPatch, error)
+	DecodePatch([]byte, PatchFormat, DecodeOptions) (DocumentPatch, error)
 }
 
 func normalizePatchFormat(format PatchFormat) PatchFormat {
 	switch strings.ToLower(strings.TrimSpace(string(format))) {
-	case "", "clash-rules", "clashrules", "clash_rules":
-		return PatchFormatClashRules
+	case "", "clash":
+		return PatchFormatClash
 	case "patch", "document-patch", "document_patch":
 		return PatchFormatDocument
 	case "sing-box", "singbox", "sing_box":
@@ -49,8 +55,12 @@ func normalizePatchFormat(format PatchFormat) PatchFormat {
 }
 
 // DecodePatch decodes one patch using the requested format. An empty format
-// defaults to clash-rules.
+// defaults to clash.
 func (c *Converter) DecodePatch(data []byte, format PatchFormat) (DocumentPatch, error) {
+	return c.decodePatch(data, format, DecodeOptions{})
+}
+
+func (c *Converter) decodePatch(data []byte, format PatchFormat, options DecodeOptions) (DocumentPatch, error) {
 	format = normalizePatchFormat(format)
 	if format == PatchFormatDocument {
 		return decodeDocumentPatch(data)
@@ -59,7 +69,7 @@ func (c *Converter) DecodePatch(data []byte, format PatchFormat) (DocumentPatch,
 	if decoder == nil {
 		return DocumentPatch{}, fmt.Errorf("unsupported patch format %q", format)
 	}
-	return decoder.DecodePatch(data, format)
+	return decoder.DecodePatch(data, format, options)
 }
 
 func (c *Converter) LoadPatches(loader Loader, sources []PatchSource) (DocumentPatch, error) {
@@ -72,7 +82,9 @@ func (c *Converter) LoadPatches(loader Loader, sources []PatchSource) (DocumentP
 		if err != nil {
 			return DocumentPatch{}, fmt.Errorf("load patch #%d: %w", index+1, err)
 		}
-		patch, err := c.DecodePatch(data, source.Format)
+		patch, err := c.decodePatch(data, source.Format, DecodeOptions{
+			Loader: loader, BaseDirectory: SourceBaseDirectory(source.Location),
+		})
 		if err != nil {
 			return DocumentPatch{}, fmt.Errorf("decode patch #%d: %w", index+1, err)
 		}
@@ -81,13 +93,40 @@ func (c *Converter) LoadPatches(loader Loader, sources []PatchSource) (DocumentP
 	return combined, nil
 }
 
-// ApplyPatch prepends route rules and applies explicitly supplied scalar values.
+// ApplyPatch replaces explicitly supplied inbounds, prepends route rules, and
+// applies explicitly supplied scalar values.
 func ApplyPatch(document *Document, patch DocumentPatch) error {
-	if document == nil || patch.Route == nil {
+	if document == nil {
 		return nil
 	}
-	if err := validateRoutePatch(*document, *patch.Route); err != nil {
-		return err
+	if patch.Inbounds != nil {
+		if err := ValidateInbounds(*patch.Inbounds); err != nil {
+			return fmt.Errorf("patch inbounds: %w", err)
+		}
+	}
+	candidate := *document
+	candidate.Nodes = mergeNodes(document.Nodes, patch.Nodes)
+	candidate.Groups = mergeGroups(document.Groups, patch.Groups)
+	if patch.DNS != nil {
+		candidate.DNS = *patch.DNS
+		candidate.Route.DefaultDomainResolver = FirstNonEmpty(patch.DNS.ProxyResolver, patch.DNS.Final)
+	}
+	if patch.Route != nil {
+		if err := validateRoutePatch(candidate, *patch.Route); err != nil {
+			return err
+		}
+	}
+	if patch.Inbounds != nil {
+		document.Inbounds = cloneInbounds(*patch.Inbounds)
+	}
+	document.Nodes = candidate.Nodes
+	document.Groups = candidate.Groups
+	if patch.DNS != nil {
+		document.DNS = candidate.DNS
+		document.Route.DefaultDomainResolver = candidate.Route.DefaultDomainResolver
+	}
+	if patch.Route == nil {
+		return nil
 	}
 	document.Route.RuleSets = mergeRuleSets(document.Route.RuleSets, patch.Route.RuleSets)
 	rules := make([]RouteRule, 0, len(patch.Route.Rules)+len(document.Route.Rules))
@@ -105,13 +144,24 @@ func decodeDocumentPatch(data []byte) (DocumentPatch, error) {
 	if err := yaml.UnmarshalStrict(data, &patch); err != nil {
 		return DocumentPatch{}, fmt.Errorf("decode document patch: %w", err)
 	}
-	if patch.Route == nil {
+	if patch.Inbounds == nil && patch.DNS == nil && len(patch.Nodes) == 0 && len(patch.Groups) == 0 && patch.Route == nil {
 		return DocumentPatch{}, fmt.Errorf("document patch contains no supported sections")
 	}
 	return patch, nil
 }
 
 func combineDocumentPatch(target *DocumentPatch, source DocumentPatch) {
+	target.Warnings = append(target.Warnings, source.Warnings...)
+	if source.Inbounds != nil {
+		inbounds := cloneInbounds(*source.Inbounds)
+		target.Inbounds = &inbounds
+	}
+	if source.DNS != nil {
+		dns := *source.DNS
+		target.DNS = &dns
+	}
+	target.Nodes = mergeNodes(target.Nodes, source.Nodes)
+	target.Groups = mergeGroups(target.Groups, source.Groups)
 	if source.Route == nil {
 		return
 	}
@@ -124,6 +174,111 @@ func combineDocumentPatch(target *DocumentPatch, source DocumentPatch) {
 		value := *source.Route.Final
 		target.Route.Final = &value
 	}
+}
+
+func mergeNodes(base, overrides []Node) []Node {
+	result := append([]Node(nil), base...)
+	positions := make(map[string]int, len(result))
+	for index, node := range result {
+		positions[node.Name] = index
+	}
+	for _, node := range overrides {
+		if index, exists := positions[node.Name]; exists {
+			result[index] = node
+		} else {
+			positions[node.Name] = len(result)
+			result = append(result, node)
+		}
+	}
+	return result
+}
+
+func mergeGroups(base, overrides []Group) []Group {
+	result := append([]Group(nil), base...)
+	positions := make(map[string]int, len(result))
+	for index, group := range result {
+		positions[group.Name] = index
+	}
+	for _, group := range overrides {
+		if index, exists := positions[group.Name]; exists {
+			result[index] = group
+		} else {
+			positions[group.Name] = len(result)
+			result = append(result, group)
+		}
+	}
+	return result
+}
+
+func ValidateInbounds(inbounds []Inbound) error {
+	seenTags := make(map[string]struct{}, len(inbounds))
+	for index, inbound := range inbounds {
+		field := fmt.Sprintf("inbound #%d", index+1)
+		if inbound.Tag == "" {
+			return fmt.Errorf("%s: tag is required", field)
+		}
+		if _, exists := seenTags[inbound.Tag]; exists {
+			return fmt.Errorf("%s: duplicate tag %q", field, inbound.Tag)
+		}
+		seenTags[inbound.Tag] = struct{}{}
+		switch inbound.Type {
+		case InboundTUN:
+			if inbound.TUN == nil {
+				return fmt.Errorf("%s: tun options are required", field)
+			}
+			if len(inbound.TUN.Addresses) == 0 {
+				return fmt.Errorf("%s: at least one address is required", field)
+			}
+			if inbound.Listen != "" || inbound.ListenPort != 0 || len(inbound.Users) > 0 || inbound.SetSystemProxy {
+				return fmt.Errorf("%s: proxy listener fields are not supported for tun", field)
+			}
+			switch inbound.TUN.Stack {
+			case "", TUNStackSystem, TUNStackGVisor, TUNStackMixed:
+			default:
+				return fmt.Errorf("%s: unsupported tun stack %q", field, inbound.TUN.Stack)
+			}
+		case InboundMixed, InboundSOCKS, InboundHTTP:
+			if inbound.TUN != nil {
+				return fmt.Errorf("%s: tun options are only supported for tun", field)
+			}
+			if _, err := netip.ParseAddr(inbound.Listen); err != nil {
+				return fmt.Errorf("%s: invalid listen address %q", field, inbound.Listen)
+			}
+			if inbound.ListenPort == 0 {
+				return fmt.Errorf("%s: listen_port is required", field)
+			}
+			if inbound.SetSystemProxy && inbound.Type != InboundMixed {
+				return fmt.Errorf("%s: set_system_proxy is only supported for mixed", field)
+			}
+			seenUsers := make(map[string]struct{}, len(inbound.Users))
+			for userIndex, user := range inbound.Users {
+				if user.Username == "" || user.Password == "" {
+					return fmt.Errorf("%s user #%d: username and password are required", field, userIndex+1)
+				}
+				if _, exists := seenUsers[user.Username]; exists {
+					return fmt.Errorf("%s user #%d: duplicate username %q", field, userIndex+1, user.Username)
+				}
+				seenUsers[user.Username] = struct{}{}
+			}
+		default:
+			return fmt.Errorf("%s: unsupported type %q", field, inbound.Type)
+		}
+	}
+	return nil
+}
+
+func cloneInbounds(source []Inbound) []Inbound {
+	result := make([]Inbound, len(source))
+	copy(result, source)
+	for index := range result {
+		result[index].Users = append([]InboundUser(nil), source[index].Users...)
+		if source[index].TUN != nil {
+			tun := *source[index].TUN
+			tun.Addresses = append([]netip.Prefix(nil), source[index].TUN.Addresses...)
+			result[index].TUN = &tun
+		}
+	}
+	return result
 }
 
 func validateRoutePatch(document Document, patch RoutePatch) error {
@@ -225,7 +380,7 @@ func mergeRuleSets(base, overrides []RuleSet) []RuleSet {
 }
 
 func documentHasPolicy(document Document, policy string) bool {
-	if strings.EqualFold(policy, "DIRECT") || strings.EqualFold(policy, "proxy") {
+	if strings.EqualFold(policy, "DIRECT") || strings.EqualFold(policy, "REJECT") || strings.EqualFold(policy, "REJECT-DROP") || strings.EqualFold(policy, "proxy") {
 		return true
 	}
 	for _, node := range document.Nodes {

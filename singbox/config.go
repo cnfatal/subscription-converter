@@ -90,23 +90,35 @@ const (
 )
 
 type SingBoxInbound struct {
-	Type        SingBoxInboundType `json:"type"`
-	Tag         string             `json:"tag,omitempty"`
-	Address     []string           `json:"address,omitempty"`
-	AutoRoute   bool               `json:"auto_route,omitempty"`
-	StrictRoute bool               `json:"strict_route,omitempty"`
-	Stack       SingBoxTUNStack    `json:"stack,omitempty"`
-	MTU         uint32             `json:"mtu,omitempty"`
+	Type           SingBoxInboundType `json:"type"`
+	Tag            string             `json:"tag,omitempty"`
+	Listen         string             `json:"listen,omitempty"`
+	ListenPort     uint16             `json:"listen_port,omitempty"`
+	Users          []SingBoxUser      `json:"users,omitempty"`
+	SetSystemProxy bool               `json:"set_system_proxy,omitempty"`
+	Address        []string           `json:"address,omitempty"`
+	AutoRoute      bool               `json:"auto_route,omitempty"`
+	StrictRoute    bool               `json:"strict_route,omitempty"`
+	Stack          SingBoxTUNStack    `json:"stack,omitempty"`
+	MTU            uint32             `json:"mtu,omitempty"`
 }
 
 type SingBoxInboundType string
 type SingBoxTUNStack string
 
+type SingBoxUser struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 const (
-	SingBoxInboundTUN SingBoxInboundType = "tun"
-	SingBoxTUNSystem  SingBoxTUNStack    = "system"
-	SingBoxTUNGVisor  SingBoxTUNStack    = "gvisor"
-	SingBoxTUNMixed   SingBoxTUNStack    = "mixed"
+	SingBoxInboundTUN   SingBoxInboundType = "tun"
+	SingBoxInboundMixed SingBoxInboundType = "mixed"
+	SingBoxInboundSOCKS SingBoxInboundType = "socks"
+	SingBoxInboundHTTP  SingBoxInboundType = "http"
+	SingBoxTUNSystem    SingBoxTUNStack    = "system"
+	SingBoxTUNGVisor    SingBoxTUNStack    = "gvisor"
+	SingBoxTUNMixed     SingBoxTUNStack    = "mixed"
 )
 
 type SingBoxOutbound struct {

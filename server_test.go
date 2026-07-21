@@ -92,7 +92,7 @@ func TestHandlerAppliesSubscriptionPatchBeforeGlobalAndSourceRules(t *testing.T)
 		Patches: []subscriptionconverter.PatchSource{{Source: subscriptionconverter.Source{Location: globalPath}}},
 		Subscriptions: []subscriptionconverter.SubscriptionConfig{{
 			Name: "primary", Source: subscriptionconverter.Source{Location: "testdata/clash.yaml"}, Format: "clash",
-			Patches: []subscriptionconverter.PatchSource{{Source: subscriptionconverter.Source{Location: localPath}, Format: "clashrules"}},
+			Patches: []subscriptionconverter.PatchSource{{Source: subscriptionconverter.Source{Location: localPath}, Format: "clash"}},
 		}},
 	}
 	handler, err := subscriptionconverter.NewHandler(config, builtin.New(), nil)
@@ -121,6 +121,65 @@ func TestHandlerAppliesSubscriptionPatchBeforeGlobalAndSourceRules(t *testing.T)
 	}
 	if firstString(output.Route.Rules[3]["domain"]) != "local.example" || firstString(output.Route.Rules[4]["domain"]) != "global.example" || firstString(output.Route.Rules[5]["domain_suffix"]) != "example.org" {
 		t.Fatalf("unexpected patch priority: %#v", output.Route.Rules)
+	}
+}
+
+func TestHandlerAppliesSubscriptionInboundPatchOverGlobalDefault(t *testing.T) {
+	directory := t.TempDir()
+	globalPath := filepath.Join(directory, "global-sing-box.yaml")
+	localPath := filepath.Join(directory, "local-sing-box.yaml")
+	if err := os.WriteFile(globalPath, []byte(`
+inbounds:
+  - {type: mixed, tag: local-in, listen: 127.0.0.1, listen_port: 7890}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(localPath, []byte(`
+inbounds:
+  - type: mixed
+    tag: lan-in
+    listen: 0.0.0.0
+    listen_port: 7891
+    users:
+      - {username: proxy, password: secret}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := subscriptionconverter.Config{
+		Patches: []subscriptionconverter.PatchSource{{
+			Format: subscriptionconverter.PatchFormatSingBox,
+			Source: subscriptionconverter.Source{Location: globalPath},
+		}},
+		Subscriptions: []subscriptionconverter.SubscriptionConfig{{
+			Name: "primary", Format: "clash", Source: subscriptionconverter.Source{Location: "testdata/clash.yaml"},
+			Patches: []subscriptionconverter.PatchSource{{
+				Format: subscriptionconverter.PatchFormatSingBox,
+				Source: subscriptionconverter.Source{Location: localPath},
+			}},
+		}},
+	}
+	handler, err := subscriptionconverter.NewHandler(config, builtin.New(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	handler.Routes().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/subscriptions/primary?format=sing-box", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d: %s", response.Code, response.Body.String())
+	}
+	var output struct {
+		Inbounds []struct {
+			Type       string `json:"type"`
+			Tag        string `json:"tag"`
+			Listen     string `json:"listen"`
+			ListenPort uint16 `json:"listen_port"`
+		} `json:"inbounds"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Inbounds) != 1 || output.Inbounds[0].Tag != "lan-in" || output.Inbounds[0].Listen != "0.0.0.0" || output.Inbounds[0].ListenPort != 7891 {
+		t.Fatalf("subscription inbounds did not replace global inbounds: %#v", output.Inbounds)
 	}
 }
 

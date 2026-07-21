@@ -146,8 +146,8 @@ func TestClashDecodeBuildsStrongDocument(t *testing.T) {
 	if len(decoded.Route.Rules) != 4 || decoded.Route.Final != "Main" || len(decoded.Route.Rules[3].Match.GeoSiteCodes) != 1 {
 		t.Fatalf("unexpected route: %#v", decoded.Route)
 	}
-	if !decoded.TUN.Enabled || len(decoded.DNS.Servers) != 6 || decoded.DNS.Final != "dns-1" || !decoded.DNS.StoreFakeIP {
-		t.Fatalf("expected typed TUN and DNS config: %#v %#v", decoded.TUN, decoded.DNS)
+	if len(decoded.Inbounds) != 1 || decoded.Inbounds[0].Type != subscriptionconverter.InboundTUN || decoded.Inbounds[0].TUN == nil || len(decoded.DNS.Servers) != 6 || decoded.DNS.Final != "dns-1" || !decoded.DNS.StoreFakeIP {
+		t.Fatalf("expected typed TUN inbound and DNS config: %#v %#v", decoded.Inbounds, decoded.DNS)
 	}
 }
 

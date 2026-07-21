@@ -1,12 +1,34 @@
 package subscriptionconverter_test
 
 import (
+	"github.com/cnfatal/subscription-converter/builtin"
 	"os"
 	"path/filepath"
 	"testing"
 
 	subscriptionconverter "github.com/cnfatal/subscription-converter"
 )
+
+func TestTrackedDefaultPatches(t *testing.T) {
+	config, err := subscriptionconverter.LoadConfig("config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch, err := builtin.New().LoadPatches(subscriptionconverter.NewLoader(nil), config.Patches)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := subscriptionconverter.DefaultDocument()
+	if err := subscriptionconverter.ApplyPatch(&document, patch); err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Inbounds) != 2 || document.Inbounds[0].Type != subscriptionconverter.InboundTUN || document.Inbounds[1].Type != subscriptionconverter.InboundMixed || document.Inbounds[1].Listen != "127.0.0.1" || document.Inbounds[1].ListenPort != 7890 {
+		t.Fatalf("unexpected tracked inbounds: %#v", document.Inbounds)
+	}
+	if len(document.Route.Rules) == 0 {
+		t.Fatal("tracked proxy rules were not loaded")
+	}
+}
 
 func TestLoadConfig(t *testing.T) {
 	path := writeConfig(t, `
@@ -42,7 +64,7 @@ subscriptions:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(config.Patches) != 1 || config.Patches[0].Format != subscriptionconverter.PatchFormatClashRules || config.Patches[0].Location != filepath.Join(homeDirectory, ".config", "proxy-rules.yaml") {
+	if len(config.Patches) != 1 || config.Patches[0].Format != subscriptionconverter.PatchFormatClash || config.Patches[0].Location != filepath.Join(homeDirectory, ".config", "proxy-rules.yaml") {
 		t.Fatalf("unexpected global patches: %#v", config.Patches)
 	}
 	if config.Patches[0].Headers["Authorization"][0] != "Bearer patch" || config.Patches[0].Timeout != "5s" || config.Patches[0].Cache != "1h" {
@@ -67,6 +89,11 @@ func TestLoadConfigRejectsInvalidSubscriptions(t *testing.T) {
 `,
 		"unknown patch format": `patches:
   - {source: rules.yaml, format: unknown}
+subscriptions:
+  - {name: main, source: one}
+`,
+		"removed clash rules format": `patches:
+  - {source: rules.yaml, format: clash-rules}
 subscriptions:
   - {name: main, source: one}
 `,

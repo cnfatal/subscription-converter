@@ -1,0 +1,61 @@
+rules:
+  # AI
+  - DOMAIN-SUFFIX,openai.com,Proxy
+  - DOMAIN-SUFFIX,anthropic.com,Proxy
+  - DOMAIN-SUFFIX,claude.ai,Proxy
+  - DOMAIN-KEYWORD,claude,Proxy
+  - DOMAIN-SUFFIX,oaistatic.com,Proxy
+  - DOMAIN-SUFFIX,oaiusercontent.com,Proxy
+  - DOMAIN-SUFFIX,midjourney.com,Proxy
+  - DOMAIN-SUFFIX,civitai.com,Proxy
+  - DOMAIN-SUFFIX,huggingface.co,Proxy
+
+  # Copilot & Codex
+  - DOMAIN-SUFFIX,copilot.microsoft.com,Proxy
+  - DOMAIN-KEYWORD,copilot,Proxy
+  - DOMAIN-KEYWORD,codex,Proxy
+  - DOMAIN-SUFFIX,githubcopilot.com,Proxy
+
+  # ChatGPT
+  - DOMAIN-SUFFIX,chatgpt.com,Proxy
+
+  # Docker
+  - DOMAIN-SUFFIX,docker.com,Proxy
+  - DOMAIN-SUFFIX,docker.io,Proxy
+  - DOMAIN-SUFFIX,hub.docker.com,Proxy
+
+  # GitHub
+  - DOMAIN-SUFFIX,github.com,Proxy
+  - DOMAIN-SUFFIX,githubusercontent.com,Proxy
+  - DOMAIN-SUFFIX,githubapp.com,Proxy
+  - DOMAIN-SUFFIX,github.dev,Proxy
+  - DOMAIN-SUFFIX,github.io,Proxy
+
+  # Google / YouTube
+  - DOMAIN-SUFFIX,google.com,Proxy
+  - DOMAIN-SUFFIX,googleapis.com,Proxy
+  - DOMAIN-SUFFIX,googleusercontent.com,Proxy
+  - DOMAIN-SUFFIX,gstatic.com,Proxy
+  - DOMAIN-SUFFIX,youtube.com,Proxy
+  - DOMAIN-SUFFIX,withgoogle.com,Proxy
+  - DOMAIN-SUFFIX,ytimg.com,Proxy
+  - DOMAIN-KEYWORD,google,Proxy
+  - DOMAIN-SUFFIX,goog,Proxy
+
+  # Commonly Blocked Sites
+  - DOMAIN-SUFFIX,twitter.com,Proxy
+  - DOMAIN-SUFFIX,x.com,Proxy
+  - DOMAIN-SUFFIX,twimg.com,Proxy
+  - DOMAIN-SUFFIX,facebook.com,Proxy
+  - DOMAIN-SUFFIX,instagram.com,Proxy
+  - DOMAIN-SUFFIX,wikipedia.org,Proxy
+  - DOMAIN-SUFFIX,telegram.org,Proxy
+  - DOMAIN-SUFFIX,discord.com,Proxy
+
+  # Reject
+  - DOMAIN-SUFFIX,ad.com,REJECT
+
+  # Local / Direct
+  - DOMAIN-SUFFIX,cn,DIRECT
+  - GEOIP,CN,DIRECT
+  - MATCH,DIRECT

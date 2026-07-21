@@ -1,5 +1,4 @@
 /bin/
-/rules/
 *.log
 config.json
 /config.yaml

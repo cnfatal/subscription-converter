@@ -40,6 +40,19 @@ func (SingBoxCodec) Decode([]byte, DecodeOptions) (*Document, []string, error) {
 
 func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, error) {
 	var warnings []string
+	inbounds := effectiveInbounds(doc)
+	if err := ValidateInbounds(inbounds); err != nil {
+		return nil, warnings, fmt.Errorf("encode sing-box inbounds: %w", err)
+	}
+	for _, inbound := range inbounds {
+		if inbound.Type == InboundTUN || len(inbound.Users) > 0 {
+			continue
+		}
+		address, _ := netip.ParseAddr(inbound.Listen)
+		if !address.IsLoopback() {
+			warnings = append(warnings, fmt.Sprintf("inbound %q listens on non-loopback address %s without authentication", inbound.Tag, inbound.Listen))
+		}
+	}
 	tags := buildTags(doc)
 	dns := doc.DNS
 	if len(dns.Servers) == 0 {
@@ -137,8 +150,12 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 		"outbounds": outbounds,
 		"route":     route,
 	}
-	if doc.TUN.Enabled {
-		config["inbounds"] = []map[string]any{encodeTUN(doc.TUN)}
+	if len(inbounds) > 0 {
+		encodedInbounds := make([]map[string]any, 0, len(inbounds))
+		for _, inbound := range inbounds {
+			encodedInbounds = append(encodedInbounds, encodeInbound(inbound))
+		}
+		config["inbounds"] = encodedInbounds
 	}
 	if dns.StoreFakeIP {
 		config["experimental"] = map[string]any{
@@ -150,6 +167,17 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 		return nil, warnings, fmt.Errorf("encode sing-box JSON: %w", err)
 	}
 	return append(data, '\n'), warnings, nil
+}
+
+func effectiveInbounds(doc Document) []Inbound {
+	if doc.Inbounds != nil || !doc.TUN.Enabled {
+		return doc.Inbounds
+	}
+	tun := doc.TUN
+	return []Inbound{{Type: InboundTUN, Tag: tun.Tag, TUN: &TUNConfig{
+		Addresses: tun.Addresses, AutoRoute: tun.AutoRoute, StrictRoute: tun.StrictRoute,
+		Stack: tun.Stack, MTU: tun.MTU,
+	}}}
 }
 
 func buildTags(doc Document) map[string]string {
@@ -657,17 +685,28 @@ func encodeDNS(config DNSConfig, tags map[string]string) map[string]any {
 	return result
 }
 
-func encodeTUN(config TUNConfig) map[string]any {
-	addresses := prefixStrings(config.Addresses)
-	result := map[string]any{
-		"type": "tun", "tag": config.Tag, "address": addresses,
-		"auto_route": config.AutoRoute, "strict_route": config.StrictRoute,
+func encodeInbound(inbound Inbound) map[string]any {
+	result := map[string]any{"type": inbound.Type, "tag": inbound.Tag}
+	if inbound.Type == InboundTUN {
+		config := inbound.TUN
+		result["address"] = prefixStrings(config.Addresses)
+		result["auto_route"] = config.AutoRoute
+		result["strict_route"] = config.StrictRoute
+		if config.Stack != "" {
+			result["stack"] = config.Stack
+		}
+		if config.MTU > 0 {
+			result["mtu"] = config.MTU
+		}
+		return result
 	}
-	if config.Stack != "" {
-		result["stack"] = config.Stack
+	result["listen"] = inbound.Listen
+	result["listen_port"] = inbound.ListenPort
+	if len(inbound.Users) > 0 {
+		result["users"] = inbound.Users
 	}
-	if config.MTU > 0 {
-		result["mtu"] = config.MTU
+	if inbound.SetSystemProxy {
+		result["set_system_proxy"] = true
 	}
 	return result
 }

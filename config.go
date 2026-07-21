@@ -121,7 +121,7 @@ func validatePatchSources(field string, sources []PatchSource) error {
 			return err
 		}
 		switch normalizePatchFormat(source.Format) {
-		case PatchFormatClashRules, PatchFormatDocument, PatchFormatSingBox:
+		case PatchFormatClash, PatchFormatDocument, PatchFormatSingBox:
 		default:
 			return fmt.Errorf("%s.format: unsupported patch format %q", item, source.Format)
 		}

@@ -1,9 +1,14 @@
 server:
   listen: 127.0.0.1:9099
 
-# Applied to every subscription. The default patch format is clash-rules.
-# patches:
-#   - source: ./rules/global.yaml
+# Applied to every subscription. These tracked defaults preserve the TUN
+# inbound, add a local mixed proxy, and apply the repository routing rules.
+patches:
+  - source: ./rules/proxy-rules.yaml
+    format: clash
+  - source: ./rules/inbounds.yaml
+    format: sing-box
+# Additional patch examples:
 #   - source: https://example.com/rules.yaml
 #     headers:
 #       Authorization: Bearer replace-me

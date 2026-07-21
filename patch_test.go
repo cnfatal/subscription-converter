@@ -8,6 +8,11 @@ import (
 
 func TestDecodeDocumentPatch(t *testing.T) {
 	patch, err := subscriptionconverter.New().DecodePatch([]byte(`
+inbounds:
+  - type: mixed
+    tag: mixed-in
+    listen: 127.0.0.1
+    listen_port: 7890
 route:
   rules:
     - match:
@@ -20,7 +25,7 @@ route:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if patch.Route == nil || len(patch.Route.Rules) != 1 || patch.Route.Rules[0].Action.Target != "direct" {
+	if patch.Inbounds == nil || len(*patch.Inbounds) != 1 || (*patch.Inbounds)[0].Type != subscriptionconverter.InboundMixed || patch.Route == nil || len(patch.Route.Rules) != 1 || patch.Route.Rules[0].Action.Target != "direct" {
 		t.Fatalf("unexpected document patch: %#v", patch)
 	}
 }

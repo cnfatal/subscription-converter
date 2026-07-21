@@ -1,0 +1,12 @@
+inbounds:
+  - type: tun
+    tag: tun-in
+    address:
+      - 172.19.0.1/30
+    auto_route: true
+    strict_route: true
+
+  - type: mixed
+    tag: mixed-in
+    listen: 127.0.0.1
+    listen_port: 7890

@@ -8,9 +8,11 @@ import (
 // Document is the format-neutral configuration passed between codecs.
 // It models configuration semantics instead of the field layout of any one client.
 type Document struct {
-	Log    LogConfig   `json:"log"`
-	DNS    DNSConfig   `json:"dns"`
-	TUN    TUNConfig   `json:"tun"`
+	Log      LogConfig `json:"log"`
+	DNS      DNSConfig `json:"dns"`
+	Inbounds []Inbound `json:"inbounds"`
+	// TUN is retained for source compatibility. New code should use Inbounds.
+	TUN    TUNConfig   `json:"tun,omitempty"`
 	Nodes  []Node      `json:"nodes"`
 	Groups []Group     `json:"groups"`
 	Route  RouteConfig `json:"route"`
@@ -116,13 +118,38 @@ const (
 )
 
 type TUNConfig struct {
-	Enabled     bool           `json:"enabled"`
-	Tag         string         `json:"tag"`
+	// Enabled and Tag are used by the legacy Document.TUN compatibility path.
+	Enabled     bool           `json:"enabled,omitempty"`
+	Tag         string         `json:"tag,omitempty"`
 	Addresses   []netip.Prefix `json:"addresses"`
 	AutoRoute   bool           `json:"auto_route"`
 	StrictRoute bool           `json:"strict_route"`
 	Stack       TUNStack       `json:"stack,omitempty"`
 	MTU         uint32         `json:"mtu,omitempty"`
+}
+
+type InboundType string
+
+const (
+	InboundTUN   InboundType = "tun"
+	InboundMixed InboundType = "mixed"
+	InboundSOCKS InboundType = "socks"
+	InboundHTTP  InboundType = "http"
+)
+
+type Inbound struct {
+	Type           InboundType   `json:"type"`
+	Tag            string        `json:"tag"`
+	Listen         string        `json:"listen,omitempty"`
+	ListenPort     uint16        `json:"listen_port,omitempty"`
+	Users          []InboundUser `json:"users,omitempty"`
+	SetSystemProxy bool          `json:"set_system_proxy,omitempty"`
+	TUN            *TUNConfig    `json:"tun,omitempty"`
+}
+
+type InboundUser struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type Protocol string

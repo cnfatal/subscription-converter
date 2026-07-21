@@ -4,7 +4,7 @@ MODULE := $(shell go list -m)
 BIN_DIR := $(CURDIR)/bin
 BINARY := $(BIN_DIR)/$(APP)
 CONFIG ?= $(CURDIR)/config.yaml
-PATCH_FILE ?= $(CURDIR)/rules/proxy-rules.yaml
+RULE_FILES ?= $(wildcard $(CURDIR)/rules/*)
 
 IMAGE ?= ghcr.io/cnfatal/$(APP)
 PLATFORMS ?= linux/amd64,linux/arm64
@@ -79,7 +79,10 @@ launchd-install: build
 	@mkdir -p "$(SERVICE_DIR)" "$(SERVICE_RULES_DIR)" "$(LAUNCH_AGENTS_DIR)"
 	/usr/bin/install -m 755 "$(BINARY)" "$(SERVICE_BINARY)"
 	/usr/bin/install -m 600 "$(CONFIG)" "$(SERVICE_CONFIG)"
-	@if test -f "$(PATCH_FILE)"; then /usr/bin/install -m 600 "$(PATCH_FILE)" "$(SERVICE_RULES_DIR)/proxy-rules.yaml"; fi
+	@for file in $(RULE_FILES); do \
+		test -f "$$file" || continue; \
+		/usr/bin/install -m 600 "$$file" "$(SERVICE_RULES_DIR)/$${file##*/}"; \
+	done
 	@sed \
 		-e 's|@BINARY@|$(SERVICE_BINARY)|g' \
 		-e 's|@CONFIG@|$(SERVICE_CONFIG)|g' \
