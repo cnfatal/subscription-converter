@@ -19,6 +19,7 @@ Usage:
   subscription-converter convert [options]
   subscription-converter serve [options]
   subscription-converter formats
+  subscription-converter version
 
 Run "subscription-converter <command> -help" for command options.
 `
@@ -43,6 +44,9 @@ func run(args []string, stdout, stderr io.Writer) error {
 	case "formats":
 		engine := builtin.New()
 		fmt.Fprintf(stdout, "formats: %v\n", engine.Formats())
+		return nil
+	case "version":
+		fmt.Fprintln(stdout, subscriptionconverter.GetVersion().String())
 		return nil
 	case "help", "-h", "--help":
 		fmt.Fprint(stdout, usage)

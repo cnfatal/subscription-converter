@@ -94,6 +94,12 @@ List registered formats:
 bin/subscription-converter formats
 ```
 
+Print build and Git version information:
+
+```bash
+bin/subscription-converter version
+```
+
 ## Patches
 
 Top-level patches apply to every subscription. Patches nested under a

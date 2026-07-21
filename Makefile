@@ -1,14 +1,34 @@
 APP := subscription-converter
 LABEL := cn.fatalc.subscription-converter
+MODULE := $(shell go list -m)
 BIN_DIR := $(CURDIR)/bin
 BINARY := $(BIN_DIR)/$(APP)
 CONFIG ?= $(CURDIR)/config.yaml
 PATCH_FILE ?= $(CURDIR)/rules/proxy-rules.yaml
 
 IMAGE ?= ghcr.io/cnfatal/$(APP)
-TAG ?= latest
 PLATFORMS ?= linux/amd64,linux/arm64
 IMAGE_ARCHES := amd64 arm64
+
+BUILD_DATE ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+GIT_VERSION ?= $(shell git describe --tags --dirty 2>/dev/null)
+GIT_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+GIT_BRANCH ?= $(shell git symbolic-ref --short HEAD 2>/dev/null)
+
+ifeq ($(GIT_VERSION),)
+GIT_VERSION := $(GIT_BRANCH)
+endif
+
+ifeq ($(GIT_BRANCH),main)
+IMAGE_TAG := latest
+else
+IMAGE_TAG := $(GIT_VERSION)
+endif
+
+LDFLAGS := -s -w
+LDFLAGS += -X '$(MODULE).gitVersion=$(GIT_VERSION)'
+LDFLAGS += -X '$(MODULE).gitCommit=$(GIT_COMMIT)'
+LDFLAGS += -X '$(MODULE).buildDate=$(BUILD_DATE)'
 
 USER_ID := $(shell id -u)
 LAUNCH_DOMAIN := gui/$(USER_ID)
@@ -30,14 +50,14 @@ help:
 	@echo "  run         Run the server with CONFIG=$(CONFIG)"
 	@echo "  launchd-install     Install and start the macOS LaunchAgent"
 	@echo "  launchd-uninstall   Stop and remove the macOS LaunchAgent"
-	@echo "  image       Build and push $(IMAGE):$(TAG) for $(PLATFORMS)"
+	@echo "  image       Build and push $(IMAGE):$(IMAGE_TAG) for $(PLATFORMS)"
 
 build:
 	@mkdir -p "$(BIN_DIR)"
-	CGO_ENABLED=0 go build -trimpath -o "$(BINARY)" ./cmd/subscription-converter
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o "$(BINARY)" ./cmd/subscription-converter
 	@for arch in $(IMAGE_ARCHES); do \
 		mkdir -p "$(BIN_DIR)/linux/$$arch"; \
-		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags="-s -w" \
+		CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags="$(LDFLAGS)" \
 			-o "$(BIN_DIR)/linux/$$arch/$(APP)" ./cmd/subscription-converter; \
 	done
 
@@ -81,4 +101,4 @@ image:
 	@for arch in $(IMAGE_ARCHES); do \
 		test -x "$(BIN_DIR)/linux/$$arch/$(APP)" || { echo "missing Linux binaries; run make build first"; exit 1; }; \
 	done
-	docker buildx build --platform "$(PLATFORMS)" --tag "$(IMAGE):$(TAG)" --push .
+	docker buildx build --platform "$(PLATFORMS)" --tag "$(IMAGE):$(IMAGE_TAG)" --push .
