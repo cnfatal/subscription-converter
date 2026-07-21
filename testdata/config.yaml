@@ -1,0 +1,10 @@
+server:
+  listen: 127.0.0.1:19099
+
+subscriptions:
+  - name: primary
+    source: clash.yaml
+
+  - name: forced
+    source: clash.yaml
+    format: clash

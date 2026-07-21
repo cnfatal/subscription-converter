@@ -1,0 +1,52 @@
+proxies:
+  - name: ss-hk
+    type: ss
+    server: 192.0.2.10
+    port: 8388
+    cipher: aes-128-gcm
+    password: secret
+  - name: vless-us
+    type: vless
+    server: example.com
+    port: 443
+    uuid: 00000000-0000-0000-0000-000000000001
+    tls: true
+    servername: example.com
+    client-fingerprint: chrome
+    network: ws
+    ws-opts:
+      path: /ws
+      headers:
+        Host: example.com
+  - name: trojan-jp
+    type: trojan
+    server: 192.0.2.20
+    port: 443
+    password: secret
+    sni: example.net
+
+proxy-groups:
+  - name: Auto
+    type: url-test
+    proxies: [ss-hk, vless-us, trojan-jp]
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+  - name: Main
+    type: select
+    proxies: [Auto, ss-hk, DIRECT]
+
+dns:
+  enable: true
+  ipv6: false
+  nameserver:
+    - 223.5.5.5
+    - https://1.1.1.1/dns-query
+  nameserver-policy:
+    +.example.org: https://8.8.8.8/dns-query
+
+rules:
+  - DOMAIN-SUFFIX,example.org,DIRECT
+  - DOMAIN,blocked.example,REJECT
+  - IP-CIDR,198.51.100.0/24,Main,no-resolve
+  - GEOSITE,cn,DIRECT
+  - MATCH,Main
