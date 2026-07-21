@@ -2,6 +2,7 @@ package subscriptionconverter_test
 
 import (
 	"encoding/json"
+	"github.com/cnfatal/subscription-converter/builtin"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,10 +15,10 @@ import (
 
 func TestHandlerRoutesSubscriptionsByName(t *testing.T) {
 	config := subscriptionconverter.Config{Subscriptions: []subscriptionconverter.SubscriptionConfig{
-		{Name: "primary", Source: "testdata/clash.yaml"},
-		{Name: "wrong-format", Source: "testdata/clash.yaml", Format: "sing-box"},
+		{Name: "primary", Source: subscriptionconverter.Source{Location: "testdata/clash.yaml"}},
+		{Name: "wrong-format", Source: subscriptionconverter.Source{Location: "testdata/clash.yaml"}, Format: "sing-box"},
 	}}
-	handler, err := subscriptionconverter.NewHandler(config, subscriptionconverter.New(), nil)
+	handler, err := subscriptionconverter.NewHandler(config, builtin.New(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,13 +67,13 @@ func TestHandlerAppliesSubscriptionPatchBeforeGlobalAndSourceRules(t *testing.T)
 		t.Fatal(err)
 	}
 	config := subscriptionconverter.Config{
-		Patches: []subscriptionconverter.PatchSource{{Source: globalPath}},
+		Patches: []subscriptionconverter.PatchSource{{Source: subscriptionconverter.Source{Location: globalPath}}},
 		Subscriptions: []subscriptionconverter.SubscriptionConfig{{
-			Name: "primary", Source: "testdata/clash.yaml", Format: "clash",
-			Patches: []subscriptionconverter.PatchSource{{Source: localPath, Format: "clashrules"}},
+			Name: "primary", Source: subscriptionconverter.Source{Location: "testdata/clash.yaml"}, Format: "clash",
+			Patches: []subscriptionconverter.PatchSource{{Source: subscriptionconverter.Source{Location: localPath}, Format: "clashrules"}},
 		}},
 	}
-	handler, err := subscriptionconverter.NewHandler(config, subscriptionconverter.New(), nil)
+	handler, err := subscriptionconverter.NewHandler(config, builtin.New(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,10 +113,10 @@ func firstString(value any) string {
 
 func TestHandlerIndexListsGeneratedURLsWithoutSources(t *testing.T) {
 	config := subscriptionconverter.Config{Subscriptions: []subscriptionconverter.SubscriptionConfig{
-		{Name: "justmysocks", Source: "https://secret.example/subscription?token=secret", Format: "base64"},
-		{Name: "clash", Source: "testdata/clash.yaml", Format: "clash"},
+		{Name: "justmysocks", Source: subscriptionconverter.Source{Location: "https://secret.example/subscription?token=secret"}, Format: "base64"},
+		{Name: "clash", Source: subscriptionconverter.Source{Location: "testdata/clash.yaml"}, Format: "clash"},
 	}}
-	handler, err := subscriptionconverter.NewHandler(config, subscriptionconverter.New(), nil)
+	handler, err := subscriptionconverter.NewHandler(config, builtin.New(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

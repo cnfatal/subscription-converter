@@ -7,6 +7,10 @@
 
 - Clash/Mihomo YAML
 - Base64 包装的 Shadowsocks、VMess、VLESS URI
+- AnyTLS、Hysteria2 端口跳跃、VLESS Reality
+- Proxy Provider、Rule Provider、RULE-SET、GEOIP、GEOSITE
+- select、url-test、relay，以及 fallback/load-balance 兼容转换
+- Clash DNS policy、FakeIP、fallback 和 proxy/direct resolver
 - sing-box JSON 输出
 - 本地文件、标准输入和 HTTP(S) 订阅源
 
@@ -29,6 +33,10 @@ subscriptions:
     source: https://example.com/subscription
     # 可选；省略时自动识别，也可以指定 base64 或 clash。
     format: base64
+    headers:
+      Authorization: Bearer replace-me
+    timeout: 30s
+    cache: 10m
 ```
 
 访问转换后的配置：
@@ -55,7 +63,7 @@ make launchd-install
 
 安装位置：
 
-- 程序和配置：`~/Library/Application Support/subscription-converter`
+- 程序、配置和规则：`~/Library/Application Support/subscription-converter`
 - LaunchAgent：`~/Library/LaunchAgents/cn.fatalc.subscription-converter.plist`
 
 常用命令：
@@ -94,7 +102,11 @@ sing-box check -c config.json
 
 ```yaml
 patches:
-  - source: ~/.config/proxy-rules.yaml
+  - source: https://example.com/proxy-rules.yaml
+    headers:
+      Authorization: Bearer replace-me
+    timeout: 30s
+    cache: 1h
 
 subscriptions:
   - name: justmysocks
@@ -142,6 +154,10 @@ subscription patches → top-level patches → source rules → final
 
 Patch 文件读取失败、规则无效、重复 `MATCH` 或引用未知策略时，本次转换直接失败。
 
+订阅、Patch、Proxy Provider 和 Rule Provider 共用同一个 Source Loader。本地文件、HTTP、
+HTTPS 使用相同的大小限制；远程 Source 支持自定义 Header、超时、内存缓存、ETag 和
+Last-Modified 条件请求。缓存默认关闭。
+
 ## 开发
 
 ```bash
@@ -149,9 +165,20 @@ make test
 make vet
 ```
 
-项目根目录是公共 Go 包 `subscriptionconverter`。新增格式只需实现 `Codec` 并注册到
-`Converter`。中间 `Document` 使用强类型节点、DNS、路由、策略组、TLS 和传输结构。
+项目根目录是公共核心包 `subscriptionconverter`，`base64`、`clash`、`singbox` 是独立
+Codec package，`builtin.New()` 负责组装内置格式。自定义场景也可以通过
+`subscriptionconverter.New(codecs...)` 只注册需要的 Codec。中间 `Document` 使用强类型
+节点、DNS、路由、策略组、TLS 和传输结构。
 
-GEOIP 规则在输出 sing-box 时转换为远程 `geoip-<code>` rule-set。目前无法等价转换的
-GEOSITE、rule-provider、DNS fallback/fake-IP 和
-load-balance 语义会产生警告，不会静默改变行为。
+GEOIP 和 GEOSITE 在输出 sing-box 时转换为远程 rule-set。Clash YAML/text Rule Provider
+会先由转换器读取，再输出为 sing-box inline rule-set；Mihomo MRS 二进制 Provider 当前会
+明确报错。
+
+`relay` 转换为 sing-box detour 链。sing-box 没有与 Clash ordered fallback 和
+round-robin/consistent-hashing load-balance 等价的 outbound，因此 fallback 使用 urltest、
+load-balance 使用 selector，并输出明确警告。
+
+FakeIP 使用 sing-box 1.12+ 的强类型 FakeIP DNS server。FakeIP 与 fallback 同时启用时
+无法保持 Mihomo 在 FakeIP 后方选择上游 DNS 的并发解析语义，fallback 选择会明确告警并省略。
+Mihomo VLESS `encryption: none` 按标准 sing-box VLESS 输出；其他 encryption 扩展不受
+sing-box 支持，相关节点会明确告警并跳过。

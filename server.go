@@ -46,6 +46,7 @@ type Handler struct {
 	patches       []PatchSource
 	Converter     *Converter
 	Logger        *slog.Logger
+	Loader        Loader
 }
 
 func NewHandler(config Config, converter *Converter, logger *slog.Logger) (*Handler, error) {
@@ -54,13 +55,13 @@ func NewHandler(config Config, converter *Converter, logger *slog.Logger) (*Hand
 		return nil, err
 	}
 	if converter == nil {
-		converter = New()
+		return nil, fmt.Errorf("converter is required")
 	}
 	subscriptions := make(map[string]SubscriptionConfig, len(config.Subscriptions))
 	for _, subscription := range config.Subscriptions {
 		subscriptions[subscription.Name] = subscription
 	}
-	return &Handler{subscriptions: subscriptions, patches: config.Patches, Converter: converter, Logger: logger}, nil
+	return &Handler{subscriptions: subscriptions, patches: config.Patches, Converter: converter, Logger: logger, Loader: NewLoader(nil)}, nil
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -132,12 +133,14 @@ func (h *Handler) convert(writer http.ResponseWriter, request *http.Request) {
 		http.Error(writer, "unknown output format", http.StatusBadRequest)
 		return
 	}
-	input, err := Load(subscription.Source)
+	input, err := h.Loader.Load(subscription.Source)
 	if err != nil {
 		h.writeError(writer, name, err)
 		return
 	}
-	decoded, err := h.Converter.Decode(input, subscription.Format, DecodeOptions{})
+	decoded, err := h.Converter.Decode(input, subscription.Format, DecodeOptions{
+		Loader: h.Loader, BaseDirectory: SourceBaseDirectory(subscription.Location),
+	})
 	if err != nil {
 		h.writeError(writer, name, err)
 		return
@@ -146,7 +149,7 @@ func (h *Handler) convert(writer http.ResponseWriter, request *http.Request) {
 		h.writeError(writer, name, fmt.Errorf("decoder returned no document"))
 		return
 	}
-	globalPatch, err := LoadPatches(h.patches)
+	globalPatch, err := h.Converter.LoadPatches(h.Loader, h.patches)
 	if err != nil {
 		h.writeError(writer, name, err)
 		return
@@ -155,7 +158,7 @@ func (h *Handler) convert(writer http.ResponseWriter, request *http.Request) {
 		h.writeError(writer, name, err)
 		return
 	}
-	localPatch, err := LoadPatches(subscription.Patches)
+	localPatch, err := h.Converter.LoadPatches(h.Loader, subscription.Patches)
 	if err != nil {
 		h.writeError(writer, name, err)
 		return

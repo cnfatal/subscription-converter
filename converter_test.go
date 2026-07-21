@@ -3,6 +3,7 @@ package subscriptionconverter_test
 import (
 	"encoding/json"
 	"errors"
+	"github.com/cnfatal/subscription-converter/builtin"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,19 +16,19 @@ func TestClashToSingBox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, warnings, err := subscriptionconverter.New().Convert(input, "clash", "sing-box")
+	output, warnings, err := builtin.New().Convert(input, "clash", "sing-box")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(warnings) != 1 {
-		t.Fatalf("expected one unsupported-rule warning, got %v", warnings)
+		t.Fatalf("expected one DNS compatibility warning, got %v", warnings)
 	}
 	var config map[string]any
 	if err := json.Unmarshal(output, &config); err != nil {
 		t.Fatalf("invalid output JSON: %v", err)
 	}
 	outbounds, ok := config["outbounds"].([]any)
-	if !ok || len(outbounds) != 7 {
+	if !ok || len(outbounds) != 10 {
 		t.Fatalf("unexpected outbounds: %#v", config["outbounds"])
 	}
 	route := config["route"].(map[string]any)
@@ -37,7 +38,7 @@ func TestClashToSingBox(t *testing.T) {
 }
 
 func TestUnknownFormats(t *testing.T) {
-	engine := subscriptionconverter.New()
+	engine := builtin.New()
 	if _, _, err := engine.Convert(nil, "unknown", "sing-box"); err == nil {
 		t.Fatal("expected unsupported input format error")
 	}
@@ -45,27 +46,27 @@ func TestUnknownFormats(t *testing.T) {
 
 func TestDecodeAuto(t *testing.T) {
 	input := readFixture(t)
-	result, err := subscriptionconverter.New().Decode(input, "", subscriptionconverter.DecodeOptions{})
+	result, err := builtin.New().Decode(input, "", subscriptionconverter.DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Format != "clash" {
 		t.Fatalf("unexpected format: %#v", result)
 	}
-	if result.Document == nil || len(result.Document.Nodes) != 3 {
+	if result.Document == nil || len(result.Document.Nodes) != 5 {
 		t.Fatalf("unexpected document: %#v", result.Document)
 	}
 }
 
 func TestDecodeFormatForcesCodec(t *testing.T) {
-	_, err := subscriptionconverter.New().Decode(readFixture(t), "sing-box", subscriptionconverter.DecodeOptions{})
+	_, err := builtin.New().Decode(readFixture(t), "sing-box", subscriptionconverter.DecodeOptions{})
 	if !errors.Is(err, subscriptionconverter.ErrDecodeUnsupported) {
 		t.Fatalf("expected sing-box decoder error, got %v", err)
 	}
 }
 
 func TestEncodeOptions(t *testing.T) {
-	engine := subscriptionconverter.New()
+	engine := builtin.New()
 	decoded, err := engine.Decode(readFixture(t), "clash", subscriptionconverter.DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +99,7 @@ func TestEncodeGeoIPAsRuleSet(t *testing.T) {
 			Final: "proxy",
 		},
 	}
-	encoded, err := subscriptionconverter.New().Encode(document, "sing-box", subscriptionconverter.EncodeOptions{})
+	encoded, err := builtin.New().Encode(document, "sing-box", subscriptionconverter.EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

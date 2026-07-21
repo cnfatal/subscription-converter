@@ -4,6 +4,11 @@ server:
 # Applied to every subscription. The default patch format is clash-rules.
 # patches:
 #   - source: ./rules/global.yaml
+#   - source: https://example.com/rules.yaml
+#     headers:
+#       Authorization: Bearer replace-me
+#     timeout: 30s
+#     cache: 1h
 #   - source: ./rules/sing-box.json
 #     format: sing-box
 #   - source: ./rules/advanced.yaml
@@ -12,6 +17,8 @@ server:
 subscriptions:
   - name: primary
     source: https://example.com/subscription?token=replace-me
+    timeout: 30s
+    cache: 10m
     # patches:
     #   - source: ./rules/primary.yaml
   - name: backup

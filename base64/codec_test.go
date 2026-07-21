@@ -1,9 +1,11 @@
-package subscriptionconverter_test
+package base64_test
 
 import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	subscriptionbase64 "github.com/cnfatal/subscription-converter/base64"
+	"github.com/cnfatal/subscription-converter/builtin"
 	"strings"
 	"testing"
 
@@ -26,12 +28,12 @@ func TestBase64CodecDecodesURIProtocols(t *testing.T) {
 		"vless://00000000-0000-0000-0000-000000000003@192.0.2.3:443?encryption=none&flow=xtls-rprx-vision&security=reality&sni=example.com&fp=chrome&pbk=public-key&sid=01234567&type=tcp#vless-node",
 	}
 	input := []byte(base64.StdEncoding.EncodeToString([]byte(strings.Join(lines, "\n"))))
-	codec := subscriptionconverter.Base64Codec{}
+	codec := subscriptionbase64.Base64Codec{}
 	if recognition := codec.Recognize(input); recognition != subscriptionconverter.RecognitionExact {
 		t.Fatalf("unexpected recognition: %v", recognition)
 	}
 
-	decoded, err := subscriptionconverter.New().Decode(input, "", subscriptionconverter.DecodeOptions{})
+	decoded, err := builtin.New().Decode(input, "", subscriptionconverter.DecodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestBase64CodecDecodesURIProtocols(t *testing.T) {
 		t.Fatalf("unexpected REALITY options: %#v", vless.TLS)
 	}
 
-	encoded, warnings, err := subscriptionconverter.New().Convert(input, "base64", "sing-box")
+	encoded, warnings, err := builtin.New().Convert(input, "base64", "sing-box")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +59,7 @@ func TestBase64CodecDecodesURIProtocols(t *testing.T) {
 
 func TestBase64CodecRejectsOrdinaryBase64(t *testing.T) {
 	input := []byte(base64.StdEncoding.EncodeToString([]byte(fmt.Sprintln("ordinary text"))))
-	if recognition := (subscriptionconverter.Base64Codec{}).Recognize(input); recognition != subscriptionconverter.RecognitionNone {
+	if recognition := (subscriptionbase64.Base64Codec{}).Recognize(input); recognition != subscriptionconverter.RecognitionNone {
 		t.Fatalf("unexpected recognition: %v", recognition)
 	}
 }

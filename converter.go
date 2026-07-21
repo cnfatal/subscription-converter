@@ -10,6 +10,7 @@ import (
 type Converter struct {
 	codecs     map[string]Codec
 	registered []Codec
+	patches    map[PatchFormat]PatchCodec
 }
 
 type ConvertOptions struct {
@@ -38,13 +39,17 @@ type ConvertResult struct {
 	Warnings     []string `json:"warnings,omitempty"`
 }
 
-func New() *Converter {
-	converter := &Converter{codecs: map[string]Codec{}}
-	converter.RegisterCodec(Base64Codec{})
-	converter.RegisterCodec(ClashCodec{})
-	converter.RegisterCodec(SingBoxCodec{})
-	_ = converter.RegisterAlias("mihomo", "clash")
-	_ = converter.RegisterAlias("singbox", "sing-box")
+func New(codecs ...Codec) *Converter {
+	converter := &Converter{codecs: map[string]Codec{}, patches: map[PatchFormat]PatchCodec{}}
+	for _, codec := range codecs {
+		converter.RegisterCodec(codec)
+	}
+	if _, err := converter.codec("clash"); err == nil {
+		_ = converter.RegisterAlias("mihomo", "clash")
+	}
+	if _, err := converter.codec("sing-box"); err == nil {
+		_ = converter.RegisterAlias("singbox", "sing-box")
+	}
 	return converter
 }
 
@@ -52,6 +57,11 @@ func (c *Converter) RegisterCodec(codec Codec) {
 	format := normalize(codec.Format())
 	c.codecs[format] = codec
 	c.registered = append(c.registered, codec)
+	if patchCodec, ok := codec.(PatchCodec); ok {
+		for _, format := range patchCodec.PatchFormats() {
+			c.patches[normalizePatchFormat(format)] = patchCodec
+		}
+	}
 }
 
 func (c *Converter) RegisterAlias(alias, format string) error {

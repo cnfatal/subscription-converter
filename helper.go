@@ -3,6 +3,7 @@ package subscriptionconverter
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -13,7 +14,7 @@ import (
 // absolute paths are returned unchanged, while ~ is expanded to the user home.
 func ResolveSource(source, baseDirectory string) string {
 	if source == "~" || strings.HasPrefix(source, "~/") {
-		if homeDirectory, err := os.UserHomeDir(); err == nil {
+		if homeDirectory, err := UserHomeDirectory(); err == nil {
 			if source == "~" {
 				return homeDirectory
 			}
@@ -24,6 +25,31 @@ func ResolveSource(source, baseDirectory string) string {
 		return source
 	}
 	return filepath.Clean(filepath.Join(baseDirectory, source))
+}
+
+// UserHomeDirectory resolves the current account's home even when launchd did
+// not provide HOME in the process environment.
+func UserHomeDirectory() (string, error) {
+	if directory, err := os.UserHomeDir(); err == nil && directory != "" {
+		return directory, nil
+	}
+	current, err := user.Current()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home: %w", err)
+	}
+	if current.HomeDir != "" {
+		return current.HomeDir, nil
+	}
+	return "", fmt.Errorf("resolve user home: empty home directory")
+}
+
+// SourceBaseDirectory returns the directory used to resolve local references
+// contained by a source. Remote configurations must use absolute provider URLs.
+func SourceBaseDirectory(source string) string {
+	if strings.HasPrefix(source, "http://") || strings.HasPrefix(source, "https://") || source == "" || source == "-" {
+		return ""
+	}
+	return filepath.Dir(source)
 }
 
 // SplitRule splits and trims a comma-separated rule.

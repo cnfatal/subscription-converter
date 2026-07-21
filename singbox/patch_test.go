@@ -1,14 +1,16 @@
-package subscriptionconverter_test
+package singbox_test
 
 import (
 	"encoding/json"
+	"github.com/cnfatal/subscription-converter/builtin"
+	"github.com/cnfatal/subscription-converter/singbox"
 	"testing"
 
 	subscriptionconverter "github.com/cnfatal/subscription-converter"
 )
 
 func TestSingBoxConfigAsPatchRoundTripsThroughDocument(t *testing.T) {
-	patch, err := subscriptionconverter.DecodePatch([]byte(`
+	patch, err := builtin.New().DecodePatch([]byte(`
 log:
   level: info
   timestamp: true
@@ -66,11 +68,11 @@ route:
 		t.Fatalf("unexpected patched document: %#v", document.Route)
 	}
 
-	encoded, err := subscriptionconverter.New().Encode(document, "sing-box", subscriptionconverter.EncodeOptions{})
+	encoded, err := builtin.New().Encode(document, "sing-box", subscriptionconverter.EncodeOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var config subscriptionconverter.SingBoxConfig
+	var config singbox.SingBoxConfig
 	if err := json.Unmarshal(encoded.Content, &config); err != nil {
 		t.Fatal(err)
 	}

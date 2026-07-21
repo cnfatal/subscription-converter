@@ -26,9 +26,9 @@ type ServerConfig struct {
 
 type SubscriptionConfig struct {
 	Name    string        `json:"name"`
-	Source  string        `json:"source"`
 	Format  string        `json:"format,omitempty"`
 	Patches []PatchSource `json:"patches,omitempty"`
+	Source
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -51,14 +51,14 @@ func LoadConfig(path string) (Config, error) {
 func (c *Config) resolveSources(baseDirectory string) {
 	resolvePatchSources(c.Patches, baseDirectory)
 	for index := range c.Subscriptions {
-		c.Subscriptions[index].Source = ResolveSource(c.Subscriptions[index].Source, baseDirectory)
+		c.Subscriptions[index].Location = ResolveSource(c.Subscriptions[index].Location, baseDirectory)
 		resolvePatchSources(c.Subscriptions[index].Patches, baseDirectory)
 	}
 }
 
 func resolvePatchSources(sources []PatchSource, baseDirectory string) {
 	for index := range sources {
-		sources[index].Source = ResolveSource(sources[index].Source, baseDirectory)
+		sources[index].Location = ResolveSource(sources[index].Location, baseDirectory)
 	}
 }
 
@@ -95,8 +95,11 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate subscription name %q", subscription.Name)
 		}
 		seen[subscription.Name] = struct{}{}
-		if subscription.Source == "" || subscription.Source == "-" {
+		if subscription.Location == "" || subscription.Location == "-" {
 			return fmt.Errorf("%s.source is required", field)
+		}
+		if err := subscription.Source.validate(field); err != nil {
+			return err
 		}
 		if subscription.Format != "" && decodeFormat(subscription.Format) == "" {
 			return fmt.Errorf("%s.format must name a codec; omit it for automatic recognition", field)
@@ -111,11 +114,16 @@ func (c Config) Validate() error {
 func validatePatchSources(field string, sources []PatchSource) error {
 	for index, source := range sources {
 		item := fmt.Sprintf("%s[%d]", field, index)
-		if source.Source == "" || source.Source == "-" {
+		if source.Location == "" || source.Location == "-" {
 			return fmt.Errorf("%s.source is required", item)
 		}
-		if _, err := patchDecoder(source.Format); err != nil {
-			return fmt.Errorf("%s.format: %w", item, err)
+		if err := source.Source.validate(item); err != nil {
+			return err
+		}
+		switch normalizePatchFormat(source.Format) {
+		case PatchFormatClashRules, PatchFormatDocument, PatchFormatSingBox:
+		default:
+			return fmt.Errorf("%s.format: unsupported patch format %q", item, source.Format)
 		}
 	}
 	return nil

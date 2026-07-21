@@ -1,260 +1,14 @@
-package subscriptionconverter
+package singbox
 
 import (
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/netip"
+	"net/url"
 	"strings"
-)
 
-// SingBoxConfig is the strongly typed sing-box configuration accepted by the
-// converter. When used as a patch, currently only Route is merged.
-type SingBoxConfig struct {
-	Log       *SingBoxLogConfig   `json:"log,omitempty"`
-	DNS       *SingBoxDNSConfig   `json:"dns,omitempty"`
-	Inbounds  []SingBoxInbound    `json:"inbounds,omitempty"`
-	Outbounds []SingBoxOutbound   `json:"outbounds,omitempty"`
-	Route     *SingBoxRouteConfig `json:"route,omitempty"`
-}
-
-type SingBoxLogConfig struct {
-	Level     SingBoxLogLevel `json:"level,omitempty"`
-	Timestamp bool            `json:"timestamp,omitempty"`
-}
-
-type SingBoxLogLevel string
-
-const (
-	SingBoxLogLevelTrace SingBoxLogLevel = "trace"
-	SingBoxLogLevelDebug SingBoxLogLevel = "debug"
-	SingBoxLogLevelInfo  SingBoxLogLevel = "info"
-	SingBoxLogLevelWarn  SingBoxLogLevel = "warn"
-	SingBoxLogLevelError SingBoxLogLevel = "error"
-)
-
-type SingBoxDNSServer struct {
-	Type       SingBoxDNSServerType `json:"type"`
-	Tag        string               `json:"tag"`
-	Server     string               `json:"server,omitempty"`
-	ServerPort uint16               `json:"server_port,omitempty"`
-	Path       string               `json:"path,omitempty"`
-	Detour     string               `json:"detour,omitempty"`
-}
-
-type SingBoxDNSServerType string
-
-const (
-	SingBoxDNSLocal SingBoxDNSServerType = "local"
-	SingBoxDNSUDP   SingBoxDNSServerType = "udp"
-	SingBoxDNSTCP   SingBoxDNSServerType = "tcp"
-	SingBoxDNSTLS   SingBoxDNSServerType = "tls"
-	SingBoxDNSQUIC  SingBoxDNSServerType = "quic"
-	SingBoxDNSHTTPS SingBoxDNSServerType = "https"
-)
-
-type SingBoxDNSRule struct {
-	Domains        []string `json:"domain,omitempty"`
-	DomainSuffixes []string `json:"domain_suffix,omitempty"`
-	DomainKeywords []string `json:"domain_keyword,omitempty"`
-	RuleSets       []string `json:"rule_set,omitempty"`
-	Outbounds      []string `json:"outbound,omitempty"`
-	Action         string   `json:"action,omitempty"`
-	Server         string   `json:"server,omitempty"`
-}
-
-type SingBoxDNSConfig struct {
-	Servers       []SingBoxDNSServer `json:"servers,omitempty"`
-	Rules         []SingBoxDNSRule   `json:"rules,omitempty"`
-	Final         string             `json:"final,omitempty"`
-	Strategy      SingBoxDNSStrategy `json:"strategy,omitempty"`
-	DisableCache  bool               `json:"disable_cache,omitempty"`
-	DisableExpire bool               `json:"disable_expire,omitempty"`
-}
-
-type SingBoxDNSStrategy string
-
-const (
-	SingBoxDNSPreferIPv4 SingBoxDNSStrategy = "prefer_ipv4"
-	SingBoxDNSPreferIPv6 SingBoxDNSStrategy = "prefer_ipv6"
-	SingBoxDNSIPv4Only   SingBoxDNSStrategy = "ipv4_only"
-	SingBoxDNSIPv6Only   SingBoxDNSStrategy = "ipv6_only"
-)
-
-type SingBoxInbound struct {
-	Type        SingBoxInboundType `json:"type"`
-	Tag         string             `json:"tag,omitempty"`
-	Address     []string           `json:"address,omitempty"`
-	AutoRoute   bool               `json:"auto_route,omitempty"`
-	StrictRoute bool               `json:"strict_route,omitempty"`
-	Stack       SingBoxTUNStack    `json:"stack,omitempty"`
-	MTU         uint32             `json:"mtu,omitempty"`
-}
-
-type SingBoxInboundType string
-type SingBoxTUNStack string
-
-const (
-	SingBoxInboundTUN SingBoxInboundType = "tun"
-	SingBoxTUNSystem  SingBoxTUNStack    = "system"
-	SingBoxTUNGVisor  SingBoxTUNStack    = "gvisor"
-	SingBoxTUNMixed   SingBoxTUNStack    = "mixed"
-)
-
-type SingBoxOutbound struct {
-	Type                SingBoxOutboundType `json:"type"`
-	Tag                 string              `json:"tag"`
-	Server              string              `json:"server,omitempty"`
-	ServerPort          uint16              `json:"server_port,omitempty"`
-	DomainResolver      string              `json:"domain_resolver,omitempty"`
-	Outbounds           []string            `json:"outbounds,omitempty"`
-	URL                 string              `json:"url,omitempty"`
-	Interval            string              `json:"interval,omitempty"`
-	Method              string              `json:"method,omitempty"`
-	Password            string              `json:"password,omitempty"`
-	Username            string              `json:"username,omitempty"`
-	UUID                string              `json:"uuid,omitempty"`
-	Security            string              `json:"security,omitempty"`
-	AlterID             int                 `json:"alter_id,omitempty"`
-	Flow                string              `json:"flow,omitempty"`
-	Plugin              string              `json:"plugin,omitempty"`
-	PluginOptions       string              `json:"plugin_options,omitempty"`
-	GlobalPadding       bool                `json:"global_padding,omitempty"`
-	AuthenticatedLength bool                `json:"authenticated_length,omitempty"`
-	UpMbps              int                 `json:"up_mbps,omitempty"`
-	DownMbps            int                 `json:"down_mbps,omitempty"`
-	CongestionControl   string              `json:"congestion_control,omitempty"`
-	UDPRelayMode        string              `json:"udp_relay_mode,omitempty"`
-	Obfs                *SingBoxObfs        `json:"obfs,omitempty"`
-	TLS                 *SingBoxTLS         `json:"tls,omitempty"`
-	Transport           *SingBoxTransport   `json:"transport,omitempty"`
-}
-
-type SingBoxOutboundType string
-
-const (
-	SingBoxOutboundDirect      SingBoxOutboundType = "direct"
-	SingBoxOutboundShadowsocks SingBoxOutboundType = "shadowsocks"
-	SingBoxOutboundVMess       SingBoxOutboundType = "vmess"
-	SingBoxOutboundVLESS       SingBoxOutboundType = "vless"
-	SingBoxOutboundTrojan      SingBoxOutboundType = "trojan"
-	SingBoxOutboundHysteria2   SingBoxOutboundType = "hysteria2"
-	SingBoxOutboundTUIC        SingBoxOutboundType = "tuic"
-	SingBoxOutboundSOCKS       SingBoxOutboundType = "socks"
-	SingBoxOutboundHTTP        SingBoxOutboundType = "http"
-	SingBoxOutboundSelector    SingBoxOutboundType = "selector"
-	SingBoxOutboundURLTest     SingBoxOutboundType = "urltest"
-)
-
-type SingBoxObfs struct {
-	Type     string `json:"type"`
-	Password string `json:"password"`
-}
-
-type SingBoxTLS struct {
-	Enabled    bool            `json:"enabled"`
-	ServerName string          `json:"server_name,omitempty"`
-	Insecure   bool            `json:"insecure,omitempty"`
-	ALPN       []string        `json:"alpn,omitempty"`
-	UTLS       *SingBoxUTLS    `json:"utls,omitempty"`
-	Reality    *SingBoxReality `json:"reality,omitempty"`
-}
-
-type SingBoxUTLS struct {
-	Enabled     bool   `json:"enabled"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-}
-
-type SingBoxReality struct {
-	Enabled   bool   `json:"enabled"`
-	PublicKey string `json:"public_key"`
-	ShortID   string `json:"short_id,omitempty"`
-}
-
-type SingBoxTransport struct {
-	Type                SingBoxTransportType `json:"type"`
-	Path                string               `json:"path,omitempty"`
-	Headers             map[string]string    `json:"headers,omitempty"`
-	MaxEarlyData        uint32               `json:"max_early_data,omitempty"`
-	EarlyDataHeaderName string               `json:"early_data_header_name,omitempty"`
-	ServiceName         string               `json:"service_name,omitempty"`
-	Hosts               []string             `json:"host,omitempty"`
-}
-
-type SingBoxTransportType string
-
-const (
-	SingBoxTransportWebSocket   SingBoxTransportType = "ws"
-	SingBoxTransportGRPC        SingBoxTransportType = "grpc"
-	SingBoxTransportHTTP        SingBoxTransportType = "http"
-	SingBoxTransportHTTPUpgrade SingBoxTransportType = "httpupgrade"
-)
-
-type SingBoxRuleAction string
-
-const (
-	SingBoxRuleActionRoute     SingBoxRuleAction = "route"
-	SingBoxRuleActionReject    SingBoxRuleAction = "reject"
-	SingBoxRuleActionSniff     SingBoxRuleAction = "sniff"
-	SingBoxRuleActionHijackDNS SingBoxRuleAction = "hijack-dns"
-)
-
-type SingBoxRouteConfig struct {
-	RuleSets              []SingBoxRuleSet   `json:"rule_set,omitempty"`
-	Rules                 []SingBoxRouteRule `json:"rules"`
-	Final                 string             `json:"final,omitempty"`
-	AutoDetectInterface   bool               `json:"auto_detect_interface,omitempty"`
-	DefaultDomainResolver string             `json:"default_domain_resolver,omitempty"`
-}
-
-type SingBoxRuleSet struct {
-	Type           SingBoxRuleSetType   `json:"type"`
-	Tag            string               `json:"tag"`
-	Format         SingBoxRuleSetFormat `json:"format,omitempty"`
-	URL            string               `json:"url,omitempty"`
-	Path           string               `json:"path,omitempty"`
-	UpdateInterval string               `json:"update_interval,omitempty"`
-	DownloadDetour string               `json:"download_detour,omitempty"`
-	Rules          []SingBoxRouteRule   `json:"rules,omitempty"`
-}
-
-type SingBoxRuleSetType string
-type SingBoxRuleSetFormat string
-
-const (
-	SingBoxRuleSetInline SingBoxRuleSetType = "inline"
-	SingBoxRuleSetLocal  SingBoxRuleSetType = "local"
-	SingBoxRuleSetRemote SingBoxRuleSetType = "remote"
-
-	SingBoxRuleSetSource SingBoxRuleSetFormat = "source"
-	SingBoxRuleSetBinary SingBoxRuleSetFormat = "binary"
-)
-
-// SingBoxRouteRule contains the sing-box match fields supported by Document.
-// Slice fields intentionally use sing-box's canonical array representation.
-type SingBoxRouteRule struct {
-	Domains        []string          `json:"domain,omitempty"`
-	DomainSuffixes []string          `json:"domain_suffix,omitempty"`
-	DomainKeywords []string          `json:"domain_keyword,omitempty"`
-	RuleSets       []string          `json:"rule_set,omitempty"`
-	IPCIDRs        []string          `json:"ip_cidr,omitempty"`
-	SourceIPCIDRs  []string          `json:"source_ip_cidr,omitempty"`
-	ProcessNames   []string          `json:"process_name,omitempty"`
-	ProcessPaths   []string          `json:"process_path,omitempty"`
-	Networks       []SingBoxNetwork  `json:"network,omitempty"`
-	Ports          []uint16          `json:"port,omitempty"`
-	SourcePorts    []uint16          `json:"source_port,omitempty"`
-	Protocols      []string          `json:"protocol,omitempty"`
-	IPIsPrivate    bool              `json:"ip_is_private,omitempty"`
-	Action         SingBoxRuleAction `json:"action,omitempty"`
-	Outbound       string            `json:"outbound,omitempty"`
-}
-
-type SingBoxNetwork string
-
-const (
-	SingBoxNetworkTCP SingBoxNetwork = "tcp"
-	SingBoxNetworkUDP SingBoxNetwork = "udp"
+	. "github.com/cnfatal/subscription-converter"
 )
 
 type SingBoxCodec struct{}
@@ -289,7 +43,7 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 	tags := buildTags(doc)
 	dns := doc.DNS
 	if len(dns.Servers) == 0 {
-		dns = defaultDocument().DNS
+		dns = DefaultDocument().DNS
 	}
 	resolver := doc.Route.DefaultDomainResolver
 	if resolver == "" {
@@ -299,8 +53,9 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 		resolver = dns.Servers[0].Tag
 	}
 
-	outbounds := make([]map[string]any, 0, len(doc.Nodes)+len(doc.Groups)+2)
+	outbounds := make([]map[string]any, 0, len(doc.Nodes)+len(doc.Groups)+3)
 	selectable := make([]string, 0, len(doc.Nodes)+len(doc.Groups))
+	nodeOutbounds := make(map[string]map[string]any, len(doc.Nodes))
 	for _, node := range doc.Nodes {
 		outbound, err := convertNode(node, tags[node.Name], resolver)
 		if err != nil {
@@ -308,12 +63,28 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 			continue
 		}
 		outbounds = append(outbounds, outbound)
+		nodeOutbounds[node.Name] = outbound
 		selectable = append(selectable, tags[node.Name])
 	}
-	outbounds = append(outbounds, map[string]any{"type": "direct", "tag": "direct"})
+	directOutbound := map[string]any{"type": "direct", "tag": "direct"}
+	if dns.DirectResolver != "" {
+		directOutbound["domain_resolver"] = dns.DirectResolver
+	}
+	outbounds = append(outbounds, directOutbound)
+	outbounds = append(outbounds, map[string]any{"type": "block", "tag": "reject"})
 
 	var groupTags []string
 	for _, group := range doc.Groups {
+		if group.Type == GroupRelay {
+			relayOutbounds, relayWarnings := convertRelayGroup(group, tags, nodeOutbounds)
+			warnings = append(warnings, relayWarnings...)
+			if len(relayOutbounds) == 0 {
+				continue
+			}
+			outbounds = append(outbounds, relayOutbounds...)
+			groupTags = append(groupTags, tags[group.Name])
+			continue
+		}
 		outbound, groupWarnings := convertGroup(group, tags)
 		warnings = append(warnings, groupWarnings...)
 		if outbound == nil {
@@ -352,14 +123,14 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 
 	logConfig := doc.Log
 	if logConfig.Level == "" {
-		logConfig = defaultDocument().Log
+		logConfig = DefaultDocument().Log
 	}
 	route := SingBoxRouteConfig{
 		Rules: routeRules, Final: final,
 		AutoDetectInterface:   doc.Route.AutoDetectInterface,
 		DefaultDomainResolver: resolver,
 	}
-	route.RuleSets = encodeRuleSets(doc.Route.RuleSets, doc.Route.Rules, tags)
+	route.RuleSets = encodeRuleSets(doc.Route.RuleSets, doc.Route.Rules, dns, tags)
 	config := map[string]any{
 		"log":       encodeLog(logConfig),
 		"dns":       encodeDNS(dns, tags),
@@ -368,6 +139,11 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 	}
 	if doc.TUN.Enabled {
 		config["inbounds"] = []map[string]any{encodeTUN(doc.TUN)}
+	}
+	if dns.StoreFakeIP {
+		config["experimental"] = map[string]any{
+			"cache_file": map[string]any{"enabled": true, "store_fakeip": true},
+		}
 	}
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -378,7 +154,7 @@ func (SingBoxCodec) Encode(doc Document, _ EncodeOptions) ([]byte, []string, err
 
 func buildTags(doc Document) map[string]string {
 	result := map[string]string{}
-	used := map[string]struct{}{"direct": {}, "proxy": {}}
+	used := map[string]struct{}{"direct": {}, "proxy": {}, "reject": {}}
 	allocate := func(name string) {
 		if _, exists := result[name]; exists {
 			return
@@ -407,7 +183,10 @@ func buildTags(doc Document) map[string]string {
 }
 
 func convertNode(node Node, tag, resolver string) (map[string]any, error) {
-	result := map[string]any{"tag": tag, "server": node.Server, "server_port": node.Port}
+	result := map[string]any{"tag": tag, "server": node.Server}
+	if node.Port > 0 {
+		result["server_port"] = node.Port
+	}
 	if net.ParseIP(node.Server) == nil && resolver != "" {
 		result["domain_resolver"] = resolver
 	}
@@ -441,6 +220,9 @@ func convertNode(node Node, tag, resolver string) (map[string]any, error) {
 		if node.VLESS == nil {
 			return nil, missingNodeOptions(node)
 		}
+		if encryption := strings.TrimSpace(node.VLESS.Encryption); encryption != "" && !strings.EqualFold(encryption, "none") {
+			return nil, fmt.Errorf("proxy %q skipped: VLESS encryption %q is not supported by sing-box", node.Name, encryption)
+		}
 		result["type"], result["uuid"] = "vless", node.VLESS.UUID
 		putString(result, "flow", node.VLESS.Flow)
 	case ProtocolTrojan:
@@ -454,6 +236,11 @@ func convertNode(node Node, tag, resolver string) (map[string]any, error) {
 		}
 		options := node.Hysteria2
 		result["type"], result["password"] = "hysteria2", options.Password
+		if len(options.ServerPorts) > 0 {
+			result["server_ports"] = options.ServerPorts
+		}
+		putString(result, "hop_interval", options.HopInterval)
+		putString(result, "hop_interval_max", options.HopIntervalMax)
 		if options.UpMbps > 0 {
 			result["up_mbps"] = options.UpMbps
 		}
@@ -462,6 +249,17 @@ func convertNode(node Node, tag, resolver string) (map[string]any, error) {
 		}
 		if options.ObfsPassword != "" {
 			result["obfs"] = map[string]any{"type": "salamander", "password": options.ObfsPassword}
+		}
+	case ProtocolAnyTLS:
+		if node.AnyTLS == nil {
+			return nil, missingNodeOptions(node)
+		}
+		options := node.AnyTLS
+		result["type"], result["password"] = "anytls", options.Password
+		putString(result, "idle_session_check_interval", options.IdleSessionCheckInterval)
+		putString(result, "idle_session_timeout", options.IdleSessionTimeout)
+		if options.MinIdleSession > 0 {
+			result["min_idle_session"] = options.MinIdleSession
 		}
 	case ProtocolTUIC:
 		if node.TUIC == nil {
@@ -557,7 +355,7 @@ func convertGroup(group Group, tags map[string]string) (map[string]any, []string
 		case strings.EqualFold(member, "DIRECT"):
 			members = append(members, "direct")
 		case strings.EqualFold(member, "REJECT"):
-			warnings = append(warnings, fmt.Sprintf("group %q: REJECT member omitted", group.Name))
+			members = append(members, "reject")
 		case tags[member] != "":
 			members = append(members, tags[member])
 		default:
@@ -578,14 +376,56 @@ func convertGroup(group Group, tags map[string]string) (map[string]any, []string
 		if group.Interval > 0 {
 			result["interval"] = group.Interval.String()
 		}
-	case GroupFallback, GroupLoadBalance:
+		if group.Tolerance > 0 {
+			result["tolerance"] = group.Tolerance
+		}
+	case GroupFallback:
+		result["type"] = "urltest"
+		putString(result, "url", group.URL)
+		if group.Interval > 0 {
+			result["interval"] = group.Interval.String()
+		}
+		if group.Tolerance > 0 {
+			result["tolerance"] = group.Tolerance
+		}
+		warnings = append(warnings, fmt.Sprintf("group %q: fallback approximated with urltest; ordered failover is not available in sing-box", group.Name))
+	case GroupLoadBalance:
 		result["type"] = "selector"
-		warnings = append(warnings, fmt.Sprintf("group %q: %s downgraded to selector", group.Name, group.Type))
+		warnings = append(warnings, fmt.Sprintf("group %q: load-balance strategy %q downgraded to selector; sing-box has no equivalent balancer", group.Name, group.Strategy))
 	default:
 		warnings = append(warnings, fmt.Sprintf("group %q skipped: unsupported type %q", group.Name, group.Type))
 		return nil, warnings
 	}
 	return result, warnings
+}
+
+func convertRelayGroup(group Group, tags map[string]string, nodes map[string]map[string]any) ([]map[string]any, []string) {
+	if len(group.Members) == 0 {
+		return nil, []string{fmt.Sprintf("group %q skipped: relay has no members", group.Name)}
+	}
+	result := make([]map[string]any, 0, len(group.Members))
+	previous := ""
+	for index, member := range group.Members {
+		template := nodes[member]
+		if template == nil {
+			return nil, []string{fmt.Sprintf("group %q skipped: relay member %q must be a proxy node", group.Name, member)}
+		}
+		outbound := make(map[string]any, len(template)+1)
+		for key, value := range template {
+			outbound[key] = value
+		}
+		tag := fmt.Sprintf("%s-hop-%d", tags[group.Name], index+1)
+		if index == len(group.Members)-1 {
+			tag = tags[group.Name]
+		}
+		outbound["tag"] = tag
+		if previous != "" {
+			outbound["detour"] = previous
+		}
+		previous = tag
+		result = append(result, outbound)
+	}
+	return result, nil
 }
 
 func convertRouteRule(rule RouteRule, tags map[string]string) (SingBoxRouteRule, string) {
@@ -612,6 +452,11 @@ func convertRouteMatch(match RouteMatch) (SingBoxRouteRule, string) {
 			ruleSetTags = append(ruleSetTags, "geoip-"+code)
 		}
 	}
+	for _, code := range match.GeoSiteCodes {
+		if code = strings.ToLower(strings.TrimSpace(code)); code != "" {
+			ruleSetTags = append(ruleSetTags, "geosite-"+code)
+		}
+	}
 	networks := make([]SingBoxNetwork, len(match.Networks))
 	for index, network := range match.Networks {
 		networks[index] = SingBoxNetwork(network)
@@ -626,7 +471,7 @@ func convertRouteMatch(match RouteMatch) (SingBoxRouteRule, string) {
 	}, ""
 }
 
-func encodeRuleSets(ruleSets []RuleSet, rules []RouteRule, tags map[string]string) []SingBoxRuleSet {
+func encodeRuleSets(ruleSets []RuleSet, rules []RouteRule, dns DNSConfig, tags map[string]string) []SingBoxRuleSet {
 	seen := make(map[string]struct{}, len(ruleSets))
 	result := make([]SingBoxRuleSet, 0, len(ruleSets))
 	for _, ruleSet := range ruleSets {
@@ -664,8 +509,73 @@ func encodeRuleSets(ruleSets []RuleSet, rules []RouteRule, tags map[string]strin
 				DownloadDetour: "proxy",
 			})
 		}
+		for _, code := range rule.Match.GeoSiteCodes {
+			code = strings.ToLower(strings.TrimSpace(code))
+			if code == "" {
+				continue
+			}
+			tag := "geosite-" + code
+			if _, exists := seen[tag]; exists {
+				continue
+			}
+			seen[tag] = struct{}{}
+			result = append(result, SingBoxRuleSet{
+				Type: SingBoxRuleSetType(RuleSetRemote), Tag: tag,
+				Format:         SingBoxRuleSetFormat(RuleSetFormatBinary),
+				URL:            "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-" + url.PathEscape(code) + ".srs",
+				DownloadDetour: "proxy",
+			})
+		}
+		for _, tag := range rule.Match.RuleSets {
+			result = appendGeneratedRuleSetTag(result, seen, tag)
+		}
+	}
+	for _, ruleSet := range ruleSets {
+		for _, match := range ruleSet.Rules {
+			result = appendGeneratedGeoRuleSets(result, seen, match)
+		}
+	}
+	for _, rule := range dns.Rules {
+		for _, tag := range rule.Match.RuleSets {
+			result = appendGeneratedRuleSetTag(result, seen, tag)
+		}
 	}
 	return result
+}
+
+func appendGeneratedGeoRuleSets(result []SingBoxRuleSet, seen map[string]struct{}, match RouteMatch) []SingBoxRuleSet {
+	for _, code := range match.GeoIPCodes {
+		result = appendGeneratedRuleSetTag(result, seen, "geoip-"+strings.ToLower(strings.TrimSpace(code)))
+	}
+	for _, code := range match.GeoSiteCodes {
+		result = appendGeneratedRuleSetTag(result, seen, "geosite-"+strings.ToLower(strings.TrimSpace(code)))
+	}
+	return result
+}
+
+func appendGeneratedRuleSetTag(result []SingBoxRuleSet, seen map[string]struct{}, tag string) []SingBoxRuleSet {
+	if tag == "" {
+		return result
+	}
+	if _, exists := seen[tag]; exists {
+		return result
+	}
+	var repository string
+	switch {
+	case strings.HasPrefix(tag, "geoip-"):
+		repository = "sing-geoip"
+	case strings.HasPrefix(tag, "geosite-"):
+		repository = "sing-geosite"
+	default:
+		return result
+	}
+	seen[tag] = struct{}{}
+	return append(result, SingBoxRuleSet{
+		Type: SingBoxRuleSetType(RuleSetRemote), Tag: tag,
+		Format:         SingBoxRuleSetFormat(RuleSetFormatBinary),
+		URL:            "https://raw.githubusercontent.com/SagerNet/" + repository + "/rule-set/" + url.PathEscape(tag) + ".srs",
+		DownloadDetour: "proxy",
+	})
 }
 
 func uniqueStrings(values []string) []string {
@@ -697,6 +607,8 @@ func encodeDNS(config DNSConfig, tags map[string]string) map[string]any {
 			item["server_port"] = server.ServerPort
 		}
 		putString(item, "path", server.Path)
+		putString(item, "inet4_range", server.Inet4Range)
+		putString(item, "inet6_range", server.Inet6Range)
 		if server.Detour != "" {
 			detour := policyTag(server.Detour, tags)
 			if detour == "" {
@@ -708,12 +620,24 @@ func encodeDNS(config DNSConfig, tags map[string]string) map[string]any {
 	}
 	rules := make([]map[string]any, 0, len(config.Rules))
 	for _, rule := range config.Rules {
-		item := map[string]any{"action": "route", "server": rule.Server}
+		action := rule.Action
+		if action == "" {
+			action = DNSActionRoute
+		}
+		item := map[string]any{"action": action}
+		putString(item, "server", rule.Server)
 		putStrings(item, "domain", rule.Match.Domains)
 		putStrings(item, "domain_suffix", rule.Match.DomainSuffixes)
 		putStrings(item, "domain_keyword", rule.Match.DomainKeywords)
 		putStrings(item, "rule_set", rule.Match.RuleSets)
 		putStrings(item, "outbound", rule.Match.OutboundTags)
+		putStrings(item, "ip_cidr", prefixStrings(rule.Match.IPCIDRs))
+		if rule.MatchResponse {
+			item["match_response"] = true
+		}
+		if rule.Invert {
+			item["invert"] = true
+		}
 		rules = append(rules, item)
 	}
 	result := map[string]any{"servers": servers}

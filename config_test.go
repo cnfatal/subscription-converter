@@ -12,6 +12,10 @@ func TestLoadConfig(t *testing.T) {
 	path := writeConfig(t, `
 patches:
   - source: ~/.config/proxy-rules.yaml
+    headers:
+      Authorization: Bearer patch
+    timeout: 5s
+    cache: 1h
 
 subscriptions:
   - name: primary
@@ -31,17 +35,20 @@ subscriptions:
 	if subscription.Format != "" {
 		t.Fatalf("defaults not applied: %#v", subscription)
 	}
-	if !filepath.IsAbs(subscription.Source) {
-		t.Fatalf("relative source was not resolved: %q", subscription.Source)
+	if !filepath.IsAbs(subscription.Location) {
+		t.Fatalf("relative source was not resolved: %q", subscription.Location)
 	}
 	homeDirectory, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(config.Patches) != 1 || config.Patches[0].Format != subscriptionconverter.PatchFormatClashRules || config.Patches[0].Source != filepath.Join(homeDirectory, ".config", "proxy-rules.yaml") {
+	if len(config.Patches) != 1 || config.Patches[0].Format != subscriptionconverter.PatchFormatClashRules || config.Patches[0].Location != filepath.Join(homeDirectory, ".config", "proxy-rules.yaml") {
 		t.Fatalf("unexpected global patches: %#v", config.Patches)
 	}
-	if len(subscription.Patches) != 1 || subscription.Patches[0].Format != subscriptionconverter.PatchFormatDocument || !filepath.IsAbs(subscription.Patches[0].Source) {
+	if config.Patches[0].Headers["Authorization"][0] != "Bearer patch" || config.Patches[0].Timeout != "5s" || config.Patches[0].Cache != "1h" {
+		t.Fatalf("unexpected patch source options: %#v", config.Patches[0])
+	}
+	if len(subscription.Patches) != 1 || subscription.Patches[0].Format != subscriptionconverter.PatchFormatDocument || !filepath.IsAbs(subscription.Patches[0].Location) {
 		t.Fatalf("unexpected subscription patches: %#v", subscription.Patches)
 	}
 }
@@ -62,6 +69,9 @@ func TestLoadConfigRejectsInvalidSubscriptions(t *testing.T) {
   - {source: rules.yaml, format: unknown}
 subscriptions:
   - {name: main, source: one}
+`,
+		"invalid source timeout": `subscriptions:
+  - {name: main, source: one, timeout: never}
 `,
 	}
 	for name, content := range tests {

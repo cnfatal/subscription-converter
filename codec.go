@@ -19,7 +19,10 @@ const (
 	RecognitionExact
 )
 
-type DecodeOptions struct{}
+type DecodeOptions struct {
+	Loader        Loader
+	BaseDirectory string
+}
 
 type EncodeOptions struct{}
 

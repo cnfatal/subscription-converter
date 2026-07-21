@@ -10,9 +10,13 @@ proxies:
     server: example.com
     port: 443
     uuid: 00000000-0000-0000-0000-000000000001
+    encryption: none
     tls: true
     servername: example.com
     client-fingerprint: chrome
+    reality-opts:
+      public-key: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      short-id: 0123456789abcdef
     network: ws
     ws-opts:
       path: /ws
@@ -24,23 +28,51 @@ proxies:
     port: 443
     password: secret
     sni: example.net
+  - name: anytls-sg
+    type: anytls
+    server: anytls.example.com
+    port: 443
+    password: secret
+    sni: anytls.example.com
+    skip-cert-verify: true
+  - name: hysteria2-de
+    type: hysteria2
+    server: hysteria.example.com
+    ports: 10000-20000
+    hop-interval: 30
+    password: secret
+    sni: hysteria.example.com
 
 proxy-groups:
   - name: Auto
     type: url-test
-    proxies: [ss-hk, vless-us, trojan-jp]
+    proxies: [ss-hk, vless-us, trojan-jp, anytls-sg, hysteria2-de]
     url: https://www.gstatic.com/generate_204
     interval: 300
   - name: Main
     type: select
-    proxies: [Auto, ss-hk, DIRECT]
+    proxies: [Auto, ss-hk, DIRECT, REJECT]
 
 dns:
   enable: true
   ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
+  fake-ip-filter:
+    - "*.lan"
   nameserver:
     - 223.5.5.5
     - https://1.1.1.1/dns-query
+  proxy-server-nameserver:
+    - https://1.1.1.1/dns-query
+  direct-nameserver:
+    - system
+  fallback:
+    - tls://8.8.4.4
+  fallback-filter:
+    geoip: false
+    domain:
+      - "+.fallback.example"
   nameserver-policy:
     +.example.org: https://8.8.8.8/dns-query
 

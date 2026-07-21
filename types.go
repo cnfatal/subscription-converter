@@ -66,28 +66,45 @@ type DNSServer struct {
 	ServerPort uint16        `json:"server_port,omitempty"`
 	Path       string        `json:"path,omitempty"`
 	Detour     string        `json:"detour,omitempty"`
+	Inet4Range string        `json:"inet4_range,omitempty"`
+	Inet6Range string        `json:"inet6_range,omitempty"`
 }
 
 type DNSRule struct {
-	Match  DNSMatch `json:"match"`
-	Server string   `json:"server"`
+	Match         DNSMatch      `json:"match"`
+	Action        DNSActionType `json:"action,omitempty"`
+	Server        string        `json:"server,omitempty"`
+	MatchResponse bool          `json:"match_response,omitempty"`
+	Invert        bool          `json:"invert,omitempty"`
 }
 
+type DNSActionType string
+
+const (
+	DNSActionRoute    DNSActionType = "route"
+	DNSActionEvaluate DNSActionType = "evaluate"
+	DNSActionRespond  DNSActionType = "respond"
+)
+
 type DNSMatch struct {
-	Domains        []string `json:"domains,omitempty"`
-	DomainSuffixes []string `json:"domain_suffixes,omitempty"`
-	DomainKeywords []string `json:"domain_keywords,omitempty"`
-	RuleSets       []string `json:"rule_sets,omitempty"`
-	OutboundTags   []string `json:"outbound_tags,omitempty"`
+	Domains        []string       `json:"domains,omitempty"`
+	DomainSuffixes []string       `json:"domain_suffixes,omitempty"`
+	DomainKeywords []string       `json:"domain_keywords,omitempty"`
+	RuleSets       []string       `json:"rule_sets,omitempty"`
+	OutboundTags   []string       `json:"outbound_tags,omitempty"`
+	IPCIDRs        []netip.Prefix `json:"ip_cidrs,omitempty"`
 }
 
 type DNSConfig struct {
-	Servers       []DNSServer `json:"servers"`
-	Rules         []DNSRule   `json:"rules,omitempty"`
-	Final         string      `json:"final,omitempty"`
-	Strategy      DNSStrategy `json:"strategy,omitempty"`
-	DisableCache  bool        `json:"disable_cache,omitempty"`
-	DisableExpire bool        `json:"disable_expire,omitempty"`
+	Servers        []DNSServer `json:"servers"`
+	Rules          []DNSRule   `json:"rules,omitempty"`
+	Final          string      `json:"final,omitempty"`
+	Strategy       DNSStrategy `json:"strategy,omitempty"`
+	DisableCache   bool        `json:"disable_cache,omitempty"`
+	DisableExpire  bool        `json:"disable_expire,omitempty"`
+	ProxyResolver  string      `json:"proxy_resolver,omitempty"`
+	DirectResolver string      `json:"direct_resolver,omitempty"`
+	StoreFakeIP    bool        `json:"store_fakeip,omitempty"`
 }
 
 type TUNStack string
@@ -116,6 +133,7 @@ const (
 	ProtocolVLESS       Protocol = "vless"
 	ProtocolTrojan      Protocol = "trojan"
 	ProtocolHysteria2   Protocol = "hysteria2"
+	ProtocolAnyTLS      Protocol = "anytls"
 	ProtocolTUIC        Protocol = "tuic"
 	ProtocolSOCKS       Protocol = "socks"
 	ProtocolHTTP        Protocol = "http"
@@ -136,6 +154,7 @@ type Node struct {
 	VLESS       *VLESSOptions       `json:"vless,omitempty"`
 	Trojan      *TrojanOptions      `json:"trojan,omitempty"`
 	Hysteria2   *Hysteria2Options   `json:"hysteria2,omitempty"`
+	AnyTLS      *AnyTLSOptions      `json:"anytls,omitempty"`
 	TUIC        *TUICOptions        `json:"tuic,omitempty"`
 	SOCKS       *SOCKSOptions       `json:"socks,omitempty"`
 	HTTP        *HTTPOptions        `json:"http,omitempty"`
@@ -189,8 +208,9 @@ type VMessOptions struct {
 }
 
 type VLESSOptions struct {
-	UUID string `json:"uuid"`
-	Flow string `json:"flow,omitempty"`
+	UUID       string `json:"uuid"`
+	Flow       string `json:"flow,omitempty"`
+	Encryption string `json:"encryption,omitempty"`
 }
 
 type TrojanOptions struct {
@@ -198,10 +218,20 @@ type TrojanOptions struct {
 }
 
 type Hysteria2Options struct {
-	Password     string `json:"password"`
-	UpMbps       int    `json:"up_mbps,omitempty"`
-	DownMbps     int    `json:"down_mbps,omitempty"`
-	ObfsPassword string `json:"obfs_password,omitempty"`
+	Password       string   `json:"password"`
+	ServerPorts    []string `json:"server_ports,omitempty"`
+	HopInterval    string   `json:"hop_interval,omitempty"`
+	HopIntervalMax string   `json:"hop_interval_max,omitempty"`
+	UpMbps         int      `json:"up_mbps,omitempty"`
+	DownMbps       int      `json:"down_mbps,omitempty"`
+	ObfsPassword   string   `json:"obfs_password,omitempty"`
+}
+
+type AnyTLSOptions struct {
+	Password                 string `json:"password"`
+	IdleSessionCheckInterval string `json:"idle_session_check_interval,omitempty"`
+	IdleSessionTimeout       string `json:"idle_session_timeout,omitempty"`
+	MinIdleSession           int    `json:"min_idle_session,omitempty"`
 }
 
 type TUICOptions struct {
@@ -228,14 +258,18 @@ const (
 	GroupURLTest     GroupType = "urltest"
 	GroupFallback    GroupType = "fallback"
 	GroupLoadBalance GroupType = "load-balance"
+	GroupRelay       GroupType = "relay"
 )
 
 type Group struct {
-	Name     string        `json:"name"`
-	Type     GroupType     `json:"type"`
-	Members  []string      `json:"members"`
-	URL      string        `json:"url,omitempty"`
-	Interval time.Duration `json:"interval,omitempty"`
+	Name      string        `json:"name"`
+	Type      GroupType     `json:"type"`
+	Members   []string      `json:"members"`
+	URL       string        `json:"url,omitempty"`
+	Interval  time.Duration `json:"interval,omitempty"`
+	Tolerance int           `json:"tolerance,omitempty"`
+	Lazy      bool          `json:"lazy,omitempty"`
+	Strategy  string        `json:"strategy,omitempty"`
 }
 
 type Network string
@@ -289,6 +323,7 @@ type RouteMatch struct {
 	DomainSuffixes []string       `json:"domain_suffixes,omitempty"`
 	DomainKeywords []string       `json:"domain_keywords,omitempty"`
 	GeoIPCodes     []string       `json:"geoip_codes,omitempty"`
+	GeoSiteCodes   []string       `json:"geosite_codes,omitempty"`
 	RuleSets       []string       `json:"rule_sets,omitempty"`
 	IPCIDRs        []netip.Prefix `json:"ip_cidrs,omitempty"`
 	SourceIPCIDRs  []netip.Prefix `json:"source_ip_cidrs,omitempty"`

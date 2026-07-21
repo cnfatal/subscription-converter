@@ -16,8 +16,8 @@ const (
 )
 
 type PatchSource struct {
-	Source string      `json:"source"`
 	Format PatchFormat `json:"format,omitempty"`
+	Source
 }
 
 type DocumentPatch struct {
@@ -30,19 +30,9 @@ type RoutePatch struct {
 	Final    *string     `json:"final,omitempty"`
 }
 
-type patchDecodeFunc func([]byte) (DocumentPatch, error)
-
-func patchDecoder(format PatchFormat) (patchDecodeFunc, error) {
-	switch normalizePatchFormat(format) {
-	case PatchFormatClashRules:
-		return decodeClashRulesPatch, nil
-	case PatchFormatDocument:
-		return decodeDocumentPatch, nil
-	case PatchFormatSingBox:
-		return decodeSingBoxPatch, nil
-	default:
-		return nil, fmt.Errorf("unsupported patch format %q (available: clash-rules, patch, sing-box)", format)
-	}
+type PatchCodec interface {
+	PatchFormats() []PatchFormat
+	DecodePatch([]byte, PatchFormat) (DocumentPatch, error)
 }
 
 func normalizePatchFormat(format PatchFormat) PatchFormat {
@@ -60,23 +50,29 @@ func normalizePatchFormat(format PatchFormat) PatchFormat {
 
 // DecodePatch decodes one patch using the requested format. An empty format
 // defaults to clash-rules.
-func DecodePatch(data []byte, format PatchFormat) (DocumentPatch, error) {
-	decoder, err := patchDecoder(format)
-	if err != nil {
-		return DocumentPatch{}, err
+func (c *Converter) DecodePatch(data []byte, format PatchFormat) (DocumentPatch, error) {
+	format = normalizePatchFormat(format)
+	if format == PatchFormatDocument {
+		return decodeDocumentPatch(data)
 	}
-	return decoder(data)
+	decoder := c.patches[format]
+	if decoder == nil {
+		return DocumentPatch{}, fmt.Errorf("unsupported patch format %q", format)
+	}
+	return decoder.DecodePatch(data, format)
 }
 
-// LoadPatches loads and combines patch sources in declaration order.
-func LoadPatches(sources []PatchSource) (DocumentPatch, error) {
+func (c *Converter) LoadPatches(loader Loader, sources []PatchSource) (DocumentPatch, error) {
+	if loader == nil {
+		loader = defaultLoader
+	}
 	combined := DocumentPatch{}
 	for index, source := range sources {
-		data, err := Load(source.Source)
+		data, err := loader.Load(source.Source)
 		if err != nil {
 			return DocumentPatch{}, fmt.Errorf("load patch #%d: %w", index+1, err)
 		}
-		patch, err := DecodePatch(data, source.Format)
+		patch, err := c.DecodePatch(data, source.Format)
 		if err != nil {
 			return DocumentPatch{}, fmt.Errorf("decode patch #%d: %w", index+1, err)
 		}
@@ -102,37 +98,6 @@ func ApplyPatch(document *Document, patch DocumentPatch) error {
 		document.Route.Final = *patch.Route.Final
 	}
 	return nil
-}
-
-type clashRulesPatch struct {
-	Rules []string `json:"rules"`
-}
-
-func decodeClashRulesPatch(data []byte) (DocumentPatch, error) {
-	var input clashRulesPatch
-	if err := yaml.UnmarshalStrict(data, &input); err != nil {
-		return DocumentPatch{}, fmt.Errorf("decode Clash rules: %w", err)
-	}
-	if len(input.Rules) == 0 {
-		return DocumentPatch{}, fmt.Errorf("Clash rules patch contains no rules")
-	}
-	route := &RoutePatch{}
-	for index, line := range input.Rules {
-		rule, final, warning := decodeClashRule(line)
-		if warning != "" {
-			return DocumentPatch{}, fmt.Errorf("rule #%d: %s", index+1, warning)
-		}
-		if final != "" {
-			if route.Final != nil {
-				return DocumentPatch{}, fmt.Errorf("rule #%d: multiple MATCH or FINAL rules", index+1)
-			}
-			value := final
-			route.Final = &value
-			continue
-		}
-		route.Rules = append(route.Rules, rule)
-	}
-	return DocumentPatch{Route: route}, nil
 }
 
 func decodeDocumentPatch(data []byte) (DocumentPatch, error) {
@@ -168,7 +133,7 @@ func validateRoutePatch(document Document, patch RoutePatch) error {
 	}
 	patchRuleSets := make(map[string]struct{}, len(patch.RuleSets))
 	for index, ruleSet := range patch.RuleSets {
-		if err := validateRuleSet(ruleSet); err != nil {
+		if err := ValidateRuleSet(ruleSet); err != nil {
 			return fmt.Errorf("patch rule-set #%d: %w", index+1, err)
 		}
 		if _, exists := patchRuleSets[ruleSet.Tag]; exists {
@@ -210,7 +175,7 @@ func validateRoutePatch(document Document, patch RoutePatch) error {
 	return nil
 }
 
-func validateRuleSet(ruleSet RuleSet) error {
+func ValidateRuleSet(ruleSet RuleSet) error {
 	if ruleSet.Tag == "" {
 		return fmt.Errorf("tag is required")
 	}

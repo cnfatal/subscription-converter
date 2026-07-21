@@ -1,9 +1,10 @@
-package subscriptionconverter
+package base64
 
 import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	. "github.com/cnfatal/subscription-converter"
 	"net"
 	"net/url"
 	"strconv"
@@ -40,7 +41,7 @@ func (Base64Codec) Decode(data []byte, _ DecodeOptions) (*Document, []string, er
 	if err != nil {
 		return nil, nil, fmt.Errorf("decode Base64 subscription: %w", err)
 	}
-	document := defaultDocument()
+	document := DefaultDocument()
 	var warnings []string
 	usedNames := map[string]int{}
 	for index, line := range subscriptionLines(decoded) {
@@ -213,7 +214,7 @@ func decodeVLESSURI(value string) (Node, error) {
 	node := Node{
 		Name: unescapeFragment(parsed.Fragment), Type: ProtocolVLESS,
 		Server: parsed.Hostname(), Port: uint16(portValue),
-		VLESS: &VLESSOptions{UUID: parsed.User.Username(), Flow: query.Get("flow")},
+		VLESS: &VLESSOptions{UUID: parsed.User.Username(), Flow: query.Get("flow"), Encryption: query.Get("encryption")},
 	}
 	security := strings.ToLower(query.Get("security"))
 	if security == "tls" || security == "reality" {

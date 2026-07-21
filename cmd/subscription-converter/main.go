@@ -10,6 +10,7 @@ import (
 	"os"
 
 	subscriptionconverter "github.com/cnfatal/subscription-converter"
+	"github.com/cnfatal/subscription-converter/builtin"
 )
 
 const usage = `subscription-converter converts proxy client configurations.
@@ -40,7 +41,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	case "serve":
 		return runServe(args[1:], stdout)
 	case "formats":
-		engine := subscriptionconverter.New()
+		engine := builtin.New()
 		fmt.Fprintf(stdout, "formats: %v\n", engine.Formats())
 		return nil
 	case "help", "-h", "--help":
@@ -65,9 +66,12 @@ func runConvert(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	result, err := subscriptionconverter.New().ConvertWithOptions(data, subscriptionconverter.ConvertOptions{
+	result, err := builtin.New().ConvertWithOptions(data, subscriptionconverter.ConvertOptions{
 		From: *from,
 		To:   *to,
+		Decode: subscriptionconverter.DecodeOptions{
+			BaseDirectory: subscriptionconverter.SourceBaseDirectory(subscriptionconverter.ResolveSource(*input, ".")),
+		},
 	})
 	for _, warning := range result.Warnings {
 		fmt.Fprintln(stderr, "warning:", warning)
@@ -97,7 +101,7 @@ func runServe(args []string, stderr io.Writer) error {
 		return err
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	handler, err := subscriptionconverter.NewHandler(config, subscriptionconverter.New(), logger)
+	handler, err := subscriptionconverter.NewHandler(config, builtin.New(), logger)
 	if err != nil {
 		return err
 	}

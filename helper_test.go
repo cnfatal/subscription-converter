@@ -35,3 +35,18 @@ func TestResolveSource(t *testing.T) {
 		})
 	}
 }
+
+func TestUserHomeDirectoryWithoutHOME(t *testing.T) {
+	want, err := UserHomeDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", "")
+	got, err := UserHomeDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("unexpected home without HOME: got %q want %q", got, want)
+	}
+}

@@ -1,15 +1,67 @@
-package subscriptionconverter
+package singbox
 
 import (
 	"fmt"
+	. "github.com/cnfatal/subscription-converter"
 	"net/netip"
 	"strings"
 
 	"sigs.k8s.io/yaml"
 )
 
-func decodeSingBoxPatch(data []byte) (DocumentPatch, error) {
-	var input SingBoxConfig
+// These private DTOs intentionally contain only the sing-box route fields that
+// can be applied as a DocumentPatch. The complete public config lives in the
+// singbox package.
+type singBoxPatchConfig struct {
+	Log          any                `json:"log,omitempty"`
+	DNS          any                `json:"dns,omitempty"`
+	Inbounds     any                `json:"inbounds,omitempty"`
+	Outbounds    any                `json:"outbounds,omitempty"`
+	Experimental any                `json:"experimental,omitempty"`
+	Route        *singBoxPatchRoute `json:"route,omitempty"`
+}
+
+type singBoxPatchRoute struct {
+	RuleSets []singBoxPatchRuleSet `json:"rule_set,omitempty"`
+	Rules    []singBoxPatchRule    `json:"rules,omitempty"`
+	Final    string                `json:"final,omitempty"`
+}
+
+type singBoxPatchRuleSet struct {
+	Type           string             `json:"type,omitempty"`
+	Tag            string             `json:"tag"`
+	Format         string             `json:"format,omitempty"`
+	URL            string             `json:"url,omitempty"`
+	Path           string             `json:"path,omitempty"`
+	UpdateInterval string             `json:"update_interval,omitempty"`
+	DownloadDetour string             `json:"download_detour,omitempty"`
+	Rules          []singBoxPatchRule `json:"rules,omitempty"`
+}
+
+type singBoxPatchRule struct {
+	Domains        []string `json:"domain,omitempty"`
+	DomainSuffixes []string `json:"domain_suffix,omitempty"`
+	DomainKeywords []string `json:"domain_keyword,omitempty"`
+	RuleSets       []string `json:"rule_set,omitempty"`
+	IPCIDRs        []string `json:"ip_cidr,omitempty"`
+	SourceIPCIDRs  []string `json:"source_ip_cidr,omitempty"`
+	ProcessNames   []string `json:"process_name,omitempty"`
+	ProcessPaths   []string `json:"process_path,omitempty"`
+	Networks       []string `json:"network,omitempty"`
+	Ports          []uint16 `json:"port,omitempty"`
+	SourcePorts    []uint16 `json:"source_port,omitempty"`
+	Protocols      []string `json:"protocol,omitempty"`
+	IPIsPrivate    bool     `json:"ip_is_private,omitempty"`
+	Action         string   `json:"action,omitempty"`
+	Outbound       string   `json:"outbound,omitempty"`
+}
+
+func (SingBoxCodec) PatchFormats() []PatchFormat {
+	return []PatchFormat{PatchFormatSingBox}
+}
+
+func (SingBoxCodec) DecodePatch(data []byte, _ PatchFormat) (DocumentPatch, error) {
+	var input singBoxPatchConfig
 	if err := yaml.UnmarshalStrict(data, &input); err != nil {
 		return DocumentPatch{}, fmt.Errorf("decode sing-box patch: %w", err)
 	}
@@ -38,7 +90,7 @@ func decodeSingBoxPatch(data []byte) (DocumentPatch, error) {
 	return DocumentPatch{Route: route}, nil
 }
 
-func (ruleSet SingBoxRuleSet) documentRuleSet() (RuleSet, error) {
+func (ruleSet singBoxPatchRuleSet) documentRuleSet() (RuleSet, error) {
 	ruleSetType := RuleSetType(ruleSet.Type)
 	if ruleSetType == "" && len(ruleSet.Rules) > 0 {
 		ruleSetType = RuleSetInline
@@ -58,28 +110,28 @@ func (ruleSet SingBoxRuleSet) documentRuleSet() (RuleSet, error) {
 		}
 		result.Rules = append(result.Rules, match)
 	}
-	if err := validateRuleSet(result); err != nil {
+	if err := ValidateRuleSet(result); err != nil {
 		return RuleSet{}, err
 	}
 	return result, nil
 }
 
-func (rule SingBoxRouteRule) documentRouteRule() (RouteRule, error) {
+func (rule singBoxPatchRule) documentRouteRule() (RouteRule, error) {
 	match, err := rule.documentMatch()
 	if err != nil {
 		return RouteRule{}, err
 	}
 	action := rule.Action
 	if action == "" {
-		action = SingBoxRuleActionRoute
+		action = "route"
 	}
 	switch action {
-	case SingBoxRuleActionRoute:
+	case "route":
 		if rule.Outbound == "" {
 			return RouteRule{}, fmt.Errorf("route action requires outbound")
 		}
 		return RouteRule{Match: match, Action: RouteAction{Type: RouteActionRoute, Target: rule.Outbound}}, nil
-	case SingBoxRuleActionReject:
+	case "reject":
 		if rule.Outbound != "" {
 			return RouteRule{}, fmt.Errorf("reject action cannot contain outbound")
 		}
@@ -89,7 +141,7 @@ func (rule SingBoxRouteRule) documentRouteRule() (RouteRule, error) {
 	}
 }
 
-func (rule SingBoxRouteRule) documentMatch() (RouteMatch, error) {
+func (rule singBoxPatchRule) documentMatch() (RouteMatch, error) {
 	match := RouteMatch{
 		Domains: rule.Domains, DomainSuffixes: rule.DomainSuffixes,
 		DomainKeywords: rule.DomainKeywords, RuleSets: rule.RuleSets,
